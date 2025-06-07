@@ -27,6 +27,12 @@ router.post('/change-password', async (req, res) => {
   res.json({ success: true });
 });
 
+// Get all workers (for admin pages)
+router.get('/list', async (req, res) => {
+  const q = await pool.query('SELECT * FROM workers');
+  res.json(q.rows);
+});
+
 // Get projects assigned to worker
 router.get('/projects/:worker_id', async (req, res) => {
   const { worker_id } = req.params;
