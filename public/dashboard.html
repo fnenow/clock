@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FNE Time Clock - Admin Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container mt-5">
+  <h2 class="text-center">Admin Dashboard</h2>
+  <div id="admin-login-section" class="card mx-auto mt-5" style="max-width:400px;">
+    <div class="card-body">
+      <h5 class="card-title">Admin Login</h5>
+      <input class="form-control mb-2" id="adminUser" placeholder="Username">
+      <input class="form-control mb-2" type="password" id="adminPass" placeholder="Password">
+      <button class="btn btn-primary w-100" onclick="adminLogin()">Login</button>
+    </div>
+  </div>
+  <div id="dashboard-section" style="display:none;">
+    <div class="d-flex mb-2 justify-content-end">
+      <button class="btn btn-secondary" onclick="showClockedIn()">Clocked In</button>
+      <button class="btn btn-outline-secondary ms-2" onclick="showClockedOut()">Clocked Out</button>
+      <button class="btn btn-link ms-2" onclick="logout()">Logout</button>
+    </div>
+    <div id="admin-table"></div>
+  </div>
+</div>
+<script src="js/dashboard.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
