@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
 
 -- Insert a sample worker: John Doe, worker_id 12345, password "99999"
 INSERT INTO workers (worker_id, name, phone, start_date, password_hash)
-VALUES ('12345', 'John Doe', '4081234567', CURRENT_DATE, '$2b$10$zAWWBtB7VrsM5e7CJ5nqj.4fwwgY23cfXSkYuZa2Ax5U7LNZunl2a') -- bcrypt hash for 99999
+VALUES ('12345', 'John Doe', '4081234567', CURRENT_DATE, '$2a$12$AGg0VDTL0T5ebGo.QtEqSOieCbY27.Ifef5oeCU2DHfY7EA8S4k32') -- bcrypt hash for 99999
 ON CONFLICT (worker_id) DO NOTHING;
 
 -- Insert a sample project: Test Project
