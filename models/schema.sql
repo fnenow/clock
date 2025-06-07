@@ -90,3 +90,14 @@ ON CONFLICT DO NOTHING;
 INSERT INTO pay_rates (worker_id, rate, start_date)
 VALUES ('12345', 30.00, CURRENT_DATE)
 ON CONFLICT DO NOTHING;
+
+-- Session table create
+CREATE TABLE "session" (
+  "sid" varchar NOT NULL COLLATE "default",
+  "sess" json NOT NULL,
+  "expire" timestamp(6) NOT NULL
+)
+WITH (OIDS=FALSE);
+
+ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid");
+CREATE INDEX "IDX_session_expire" ON "session" ("expire");
