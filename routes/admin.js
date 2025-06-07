@@ -34,14 +34,39 @@ router.get('/clocking-in', async (req, res) => {
 
 // List clocked-out sections
 router.get('/clocked-out', async (req, res) => {
-  const q = await pool.query(
-    `SELECT ce.*, w.name as worker_name, p.name as project_name
-     FROM clock_entries ce
-     JOIN workers w ON ce.worker_id = w.worker_id
-     JOIN projects p ON ce.project_id = p.id
-     WHERE ce.action='out'
-     ORDER BY ce.datetime_utc DESC`
-  );
+  const q = await pool.query(`
+    SELECT 
+      cin.worker_id,
+      cin.project_id,
+      w.name as worker_name,
+      p.name as project_name,
+      cin.datetime_local as clock_in_time,
+      cout.datetime_local as clock_out_time,
+      cout.note as out_note,
+      cin.note as in_note,
+      cin.pay_rate,
+      cout.admin_forced_by,
+      EXTRACT(EPOCH FROM (cout.datetime_local - cin.datetime_local)) AS duration_sec
+    FROM clock_entries cin
+    JOIN clock_entries cout
+      ON cin.worker_id = cout.worker_id
+      AND cin.project_id = cout.project_id
+      AND cin.action = 'in'
+      AND cout.action = 'out'
+      AND cout.datetime_local > cin.datetime_local
+      AND NOT EXISTS (
+        SELECT 1 FROM clock_entries c2
+        WHERE c2.worker_id = cin.worker_id
+          AND c2.project_id = cin.project_id
+          AND c2.action = 'out'
+          AND c2.datetime_local > cin.datetime_local
+          AND c2.datetime_local < cout.datetime_local
+      )
+    JOIN workers w ON cin.worker_id = w.worker_id
+    JOIN projects p ON cin.project_id = p.id
+    ORDER BY cout.datetime_local DESC
+    LIMIT 100
+  `);
   res.json(q.rows);
 });
 
