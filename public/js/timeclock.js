@@ -1,6 +1,7 @@
 let currentWorker = null;
 let currentProject = null;
 let clockedIn = false;
+let clockInTime = null; // add at top of file
 
 async function login() {
   const workerId = document.getElementById('workerId').value;
@@ -64,7 +65,21 @@ async function loadClockStatus() {
         <button class="btn btn-link" onclick="showChangePassword()">Change Password</button>
       </div>`;
     document.getElementById('clock-status').innerHTML = html;
+    updateDuration(); // Start the timer
   }
+}
+
+// Duration updater
+function updateDuration() {
+  if (!clockInTime) return;
+  const now = new Date();
+  const diff = now - clockInTime;
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  document.getElementById('clock-duration').textContent =
+    `Duration: ${h}h ${m}m ${s}s`;
+  setTimeout(updateDuration, 1000);
 }
 
 async function clockIn() {
