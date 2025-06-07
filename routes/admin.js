@@ -17,20 +17,25 @@ router.post('/login', async (req, res) => {
 
 // List currently clocked-in (not clocked-out) sections
 router.get('/clocking-in', async (req, res) => {
-  const q = await pool.query(
-    `SELECT ce.*, w.name as worker_name, p.name as project_name
-     FROM clock_entries ce
-     JOIN workers w ON ce.worker_id = w.worker_id
-     JOIN projects p ON ce.project_id = p.id
-     WHERE ce.action='in'
-     AND NOT EXISTS (
-       SELECT 1 FROM clock_entries ce2
-       WHERE ce2.worker_id=ce.worker_id AND ce2.project_id=ce.project_id AND ce2.action='out' AND ce2.id > ce.id
-     )
-     ORDER BY ce.datetime_utc DESC`
-  );
+  const q = await pool.query(`
+    SELECT ce.*, w.name as worker_name, p.name as project_name
+    FROM clock_entries ce
+    JOIN workers w ON ce.worker_id = w.worker_id
+    JOIN projects p ON ce.project_id = p.id
+    WHERE ce.action='in'
+      AND NOT EXISTS (
+        SELECT 1 FROM clock_entries ce2
+        WHERE ce2.worker_id = ce.worker_id
+          AND ce2.project_id = ce.project_id
+          AND ce2.action = 'out'
+          AND ce2.datetime_local > ce.datetime_local
+      )
+    ORDER BY ce.datetime_local DESC
+    LIMIT 100
+  `);
   res.json(q.rows);
 });
+
 
 // List clocked-out sections
 router.get('/clocked-out', async (req, res) => {
@@ -69,5 +74,6 @@ router.get('/clocked-out', async (req, res) => {
   `);
   res.json(q.rows);
 });
+
 
 module.exports = router;
