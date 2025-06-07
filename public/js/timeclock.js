@@ -55,7 +55,9 @@ async function loadClockStatus() {
     // Clocked in: show duration, clock-out form
     currentProject = lastEntry.project_id;
     let html = `<div class="mb-2">Clocked in to Project ID: <b>${lastEntry.project_id}</b> <br>
-        Since: ${new Date(lastEntry.datetime_local).toLocaleString()}</div>
+      Since: ${clockInTime.toLocaleString()}<br>
+        <span id="clock-duration" class="fw-bold"></span>
+      </div>
       <div class="mb-2">
         <label>Clock Out Note:</label>
         <input class="form-control" id="noteOut">
