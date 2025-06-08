@@ -34,14 +34,15 @@ async function showClockedOut() {
 function renderAdminTable(rows, isOut) {
   let html = `<table class="table table-bordered table-sm">
     <thead><tr>
-      <th>Worker</th><th>Project</th><th>Clock In</th>
-      ${isOut ? '<th>Clock Out</th><th>Duration</th>' : '<th>Live Duration</th>'}
+      <th>Worker</th><th>Project</th>
+      ${isOut ? '<th>Clock In</th><th>Clock Out</th><th>Duration</th>' : '<th>Time In</th><th>Live Duration</th>'}
       <th>Clock In Note</th>${isOut ? '<th>Clock Out Note</th>' : ''}
       <th>Pay Rate</th>${!isOut ? '<th>Force Clock Out</th>' : '<th>Admin Forced By</th>'}
     </tr></thead><tbody>`;
+
   for (let r of rows) {
     if (isOut) {
-      // Clocked out: show both times, duration, notes
+      // Clocked out: show both times, duration, notes, admin_forced_by
       let duration = '';
       if (r.duration_sec !== undefined && r.duration_sec !== null) {
         const sec = Math.floor(r.duration_sec % 60);
@@ -55,8 +56,8 @@ function renderAdminTable(rows, isOut) {
         <td>${r.clock_in_time ? new Date(r.clock_in_time).toLocaleString() : ''}</td>
         <td>${r.clock_out_time ? new Date(r.clock_out_time).toLocaleString() : ''}</td>
         <td>${duration}</td>
-        <td>${r.in_note || ''}</td>
-        <td>${r.out_note || ''}</td>
+        <td>${r.clock_in_note || ''}</td>
+        <td>${r.clock_out_note || ''}</td>
         <td>${r.pay_rate || ''}</td>
         <td>${r.admin_forced_by || ''}</td>
       </tr>`;
