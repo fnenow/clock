@@ -1,3 +1,4 @@
+const { DateTime } = require('luxon');
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
@@ -31,10 +32,24 @@ router.post('/in', async (req, res) => {
 
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
+
+    // Use Luxon to handle time conversion
+    const dtLocal = DateTime.fromISO(datetime_local, { zone: timezone });
+    const dtUtc = dtLocal.toUTC();
+
     await pool.query(
       `INSERT INTO clock_entries (worker_id, project_id, action, datetime_utc, datetime_local, timezone, note, pay_rate, session_id)
-       VALUES ($1, $2, 'in', NOW(), $3, $4, $5, $6, $7)`,
-      [worker_id, project_id, datetime_local, timezone, note, pay_rate, session_id]
+       VALUES ($1, $2, 'in', $3, $4, $5, $6, $7, $8)`,
+      [
+        worker_id,
+        project_id,
+        dtUtc.toISO(),
+        dtLocal.toISO(),
+        timezone,
+        note,
+        pay_rate,
+        session_id
+      ]
     );
     res.json({ success: true, session_id });
   } catch (e) {
@@ -46,8 +61,8 @@ router.post('/in', async (req, res) => {
 router.post('/out', async (req, res) => {
   const { worker_id, project_id, note, datetime_local, timezone, session_id } = req.body;
   try {
-    // Ensure the session_id is provided and valid
     if (!session_id) return res.status(400).json({ message: "Missing session_id" });
+
     // Check if matching clock-in exists and hasn't been closed
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries WHERE worker_id=$1 AND project_id=$2 AND session_id=$3 AND action='in'
@@ -58,11 +73,23 @@ router.post('/out', async (req, res) => {
       [worker_id, project_id, session_id]
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
-    // Insert clock out row with same session_id
+
+    // Use Luxon to handle time conversion
+    const dtLocal = DateTime.fromISO(datetime_local, { zone: timezone });
+    const dtUtc = dtLocal.toUTC();
+
     await pool.query(
       `INSERT INTO clock_entries (worker_id, project_id, action, datetime_utc, datetime_local, timezone, note, session_id)
-       VALUES ($1, $2, 'out', NOW(), $3, $4, $5, $6)`,
-      [worker_id, project_id, datetime_local, timezone, note, session_id]
+       VALUES ($1, $2, 'out', $3, $4, $5, $6, $7)`,
+      [
+        worker_id,
+        project_id,
+        dtUtc.toISO(),
+        dtLocal.toISO(),
+        timezone,
+        note,
+        session_id
+      ]
     );
     res.json({ success: true });
   } catch (e) {
@@ -105,8 +132,9 @@ router.post('/force-out', async (req, res) => {
     if (!rows.length) return res.status(400).json({ message: "No active clock-in session found" });
 
     const clockIn = rows[0];
-    const nowUtc = new Date();
-    const localTime = nowUtc.toLocaleString("sv-SE", { timeZone: clockIn.timezone }).replace(' ', 'T');
+    const nowUtc = DateTime.utc();
+    const localTime = nowUtc.setZone(clockIn.timezone);
+
     await pool.query(
       `INSERT INTO clock_entries
          (worker_id, project_id, action, datetime_utc, datetime_local, timezone, note, admin_forced_by, session_id)
@@ -115,8 +143,8 @@ router.post('/force-out', async (req, res) => {
       [
         worker_id,
         project_id,
-        nowUtc,
-        localTime,
+        nowUtc.toISO(),
+        localTime.toISO(),
         clockIn.timezone,
         'Admin forced clock out',
         admin_name,
