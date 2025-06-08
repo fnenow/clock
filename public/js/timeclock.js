@@ -1,7 +1,13 @@
 let currentWorker = null;
 let currentProject = null;
+let sessionID = null;
 let clockedIn = false;
-let clockInTime = null; // add at top of file
+let clockInTime = null;
+
+// Restore sessionID if present in localStorage
+if (localStorage.getItem('sessionID')) {
+  sessionID = localStorage.getItem('sessionID');
+}
 
 async function login() {
   const workerId = document.getElementById('workerId').value;
@@ -24,12 +30,14 @@ async function login() {
 }
 
 async function loadClockStatus() {
-  // Check if worker is clocked in
+  // Check if worker is clocked in (gets latest open session)
   const res = await fetch(`/api/clock/status/${currentWorker.worker_id}`);
   const lastEntry = await res.json();
   clockedIn = lastEntry && lastEntry.action === 'in';
 
   if (!clockedIn) {
+    sessionID = null;
+    localStorage.removeItem('sessionID');
     // Not clocked in: show project selection and clock in
     const projectRes = await fetch(`/api/worker/projects/${currentWorker.worker_id}`);
     const projects = await projectRes.json();
@@ -43,7 +51,7 @@ async function loadClockStatus() {
     html += `</div>
       <div class="mb-2">
         <label>Notes:</label>
-        <input class="form-control" id="note">
+        <textarea class="form-control" id="note" rows="3" placeholder="Enter notes here"></textarea>
       </div>
       <button type="button" class="btn btn-success" onclick="clockIn()">Clock In</button>
       </form>
@@ -54,22 +62,23 @@ async function loadClockStatus() {
   } else {
     // Clocked in: show duration, clock-out form
     currentProject = lastEntry.project_id;
-    // Get the clock-in time
+    sessionID = lastEntry.session_id;
+    localStorage.setItem('sessionID', sessionID); // Save for page reload
     clockInTime = new Date(lastEntry.datetime_local);
     let html = `<div class="mb-2">Clocked in to Project ID: <b>${lastEntry.project_id}</b> <br>
       Since: ${clockInTime.toLocaleString()}<br>
-        <span id="clock-duration" class="fw-bold"></span>
+      <span id="clock-duration" class="fw-bold"></span>
       </div>
       <div class="mb-2">
         <label>Clock Out Note:</label>
-        <input class="form-control" id="noteOut">
+        <textarea class="form-control" id="noteOut" rows="3" placeholder="Enter notes here"></textarea>
       </div>
       <button class="btn btn-danger" onclick="clockOut()">Clock Out</button>
       <div class="mt-2">
         <button class="btn btn-link" onclick="showChangePassword()">Change Password</button>
       </div>`;
     document.getElementById('clock-status').innerHTML = html;
-    updateDuration(); // Start the timer
+    updateDuration();
   }
 }
 
@@ -91,7 +100,7 @@ async function clockIn() {
   if (!project_id) return alert("Please select a project.");
   const note = document.getElementById('note').value;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  await fetch('/api/clock/in', {
+  const res = await fetch('/api/clock/in', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -102,10 +111,19 @@ async function clockIn() {
       timezone: tz
     })
   });
+  const data = await res.json();
+  if (data.success && data.session_id) {
+    sessionID = data.session_id;
+    localStorage.setItem('sessionID', sessionID);
+  } else {
+    sessionID = null;
+    localStorage.removeItem('sessionID');
+  }
   loadClockStatus();
 }
 
 async function clockOut() {
+  if (!sessionID) return alert("No active session ID found, please reload or re-login.");
   const note = document.getElementById('noteOut').value;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   await fetch('/api/clock/out', {
@@ -116,14 +134,19 @@ async function clockOut() {
       project_id: currentProject,
       note,
       datetime_local: new Date().toISOString(),
-      timezone: tz
+      timezone: tz,
+      session_id: sessionID
     })
   });
+  sessionID = null;
+  localStorage.removeItem('sessionID');
   loadClockStatus();
 }
 
 function logout() {
   currentWorker = null;
+  sessionID = null;
+  localStorage.removeItem('sessionID');
   location.reload();
 }
 
