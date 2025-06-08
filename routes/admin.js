@@ -16,21 +16,41 @@ router.post('/login', async (req, res) => {
 });
 
 // List currently clocked-in (not clocked-out) sections
-router.get('/clocking-in', async (req, res) => {
+router.get('/clocked-out', async (req, res) => {
   const q = await pool.query(`
-    SELECT ce.*, w.name as worker_name, p.name as project_name
-    FROM clock_entries ce
-    JOIN workers w ON ce.worker_id = w.worker_id
-    JOIN projects p ON ce.project_id = p.id
-    WHERE ce.action = 'in'
-      AND NOT EXISTS (
-        SELECT 1 FROM clock_entries out
-        WHERE out.worker_id = ce.worker_id
-          AND out.project_id = ce.project_id
-          AND out.session_id = ce.session_id
-          AND out.action = 'out'
-      )
-    ORDER BY ce.datetime_local DESC
+    SELECT 
+      cin.worker_id,
+      cin.project_id,
+      w.name as worker_name,
+      p.name as project_name,
+      cin.datetime_local as clock_in_time,
+      cout.datetime_local as clock_out_time,
+      cin.note as clock_in_note,
+      cout.note as clock_out_note,
+      cin.pay_rate,
+      cout.admin_forced_by,
+      cin.session_id,
+      EXTRACT(EPOCH FROM (cout.datetime_utc - cin.datetime_utc)) AS duration_sec
+    FROM clock_entries cin
+    JOIN clock_entries cout
+      ON cin.worker_id = cout.worker_id
+      AND cin.project_id = cout.project_id
+      AND cin.session_id = cout.session_id
+      AND cin.action = 'in'
+      AND cout.action = 'out'
+      AND cout.datetime_utc > cin.datetime_utc
+    JOIN workers w ON cin.worker_id = w.worker_id
+    JOIN projects p ON cin.project_id = p.id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM clock_entries c2
+      WHERE c2.worker_id = cin.worker_id
+        AND c2.project_id = cin.project_id
+        AND c2.session_id = cin.session_id
+        AND c2.action = 'out'
+        AND c2.datetime_utc > cin.datetime_utc
+        AND c2.datetime_utc < cout.datetime_utc
+    )
+    ORDER BY cout.datetime_utc DESC
     LIMIT 100
   `);
   res.json(q.rows);
