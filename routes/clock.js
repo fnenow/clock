@@ -61,15 +61,45 @@ router.get('/status/:worker_id', async (req, res) => {
 router.post('/force-out', async (req, res) => {
   const { worker_id, project_id, admin_name } = req.body;
   try {
+    // Get the latest "in" entry for this worker/project that is still open
+    const { rows } = await pool.query(
+      `SELECT * FROM clock_entries
+       WHERE worker_id=$1 AND project_id=$2 AND action='in'
+       AND NOT EXISTS (
+         SELECT 1 FROM clock_entries as out
+         WHERE out.worker_id=$1 AND out.project_id=$2 AND out.action='out' AND out.datetime_local > clock_entries.datetime_local
+       )
+       ORDER BY datetime_local DESC
+       LIMIT 1
+      `, [worker_id, project_id]
+    );
+    if (!rows.length) return res.status(400).json({ message: "No active clock-in session found" });
+
+    // Use the timezone from clock-in, and use NOW() for utc/local time
+    const clockIn = rows[0];
+    const nowUtc = new Date();
+    // Generate local time string using clock-in's timezone (best effort in Node):
+    const localTime = nowUtc.toLocaleString("sv-SE", { timeZone: clockIn.timezone }).replace(' ', 'T');
     await pool.query(
-      `INSERT INTO clock_entries (worker_id, project_id, action, datetime_utc, note, admin_forced_by)
-      VALUES ($1, $2, 'out', NOW(), 'Admin forced clock out', $3)`,
-      [worker_id, project_id, admin_name]
+      `INSERT INTO clock_entries
+         (worker_id, project_id, action, datetime_utc, datetime_local, timezone, note, admin_forced_by)
+       VALUES
+         ($1, $2, 'out', $3, $4, $5, $6, $7)`,
+      [
+        worker_id,
+        project_id,
+        nowUtc,
+        localTime,
+        clockIn.timezone,
+        'Admin forced clock out',
+        admin_name
+      ]
     );
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ message: e.message });
   }
 });
+
 
 module.exports = router;
