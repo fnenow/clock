@@ -100,6 +100,8 @@ async function clockIn() {
   if (!project_id) return alert("Please select a project.");
   const note = document.getElementById('note').value;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // Use Luxon to get true local time with timezone
+  const datetime_local = luxon.DateTime.now().setZone(tz).toISO();
   const res = await fetch('/api/clock/in', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -107,7 +109,7 @@ async function clockIn() {
       worker_id: currentWorker.worker_id,
       project_id,
       note,
-      datetime_local: new Date().toISOString(),
+      datetime_local,
       timezone: tz
     })
   });
@@ -126,6 +128,8 @@ async function clockOut() {
   if (!sessionID) return alert("No active session ID found, please reload or re-login.");
   const note = document.getElementById('noteOut').value;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // Use Luxon to get true local time with timezone
+  const datetime_local = luxon.DateTime.now().setZone(tz).toISO();
   await fetch('/api/clock/out', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -133,7 +137,7 @@ async function clockOut() {
       worker_id: currentWorker.worker_id,
       project_id: currentProject,
       note,
-      datetime_local: new Date().toISOString(),
+      datetime_local,
       timezone: tz,
       session_id: sessionID
     })
