@@ -30,7 +30,6 @@ async function login() {
 }
 
 async function loadClockStatus() {
-  // Check if worker is clocked in (gets latest open session)
   const res = await fetch(`/api/clock/status/${currentWorker.worker_id}`);
   const lastEntry = await res.json();
   clockedIn = lastEntry && lastEntry.action === 'in';
@@ -48,7 +47,16 @@ async function loadClockStatus() {
         <label class="form-check-label" for="prj${p.id}">${p.name}</label>
       </div>`;
     }
+    // Add date and time input fields for manual override
     html += `</div>
+      <div class="mb-2">
+        <label>Date:</label>
+        <input type="date" class="form-control" id="customDate">
+      </div>
+      <div class="mb-2">
+        <label>Time:</label>
+        <input type="time" class="form-control" id="customTime" step="1">
+      </div>
       <div class="mb-2">
         <label>Notes:</label>
         <textarea class="form-control" id="note" rows="3" placeholder="Enter notes here"></textarea>
@@ -60,7 +68,6 @@ async function loadClockStatus() {
       </div>`;
     document.getElementById('clock-status').innerHTML = html;
   } else {
-    // Clocked in: show duration, clock-out form
     currentProject = lastEntry.project_id;
     sessionID = lastEntry.session_id;
     localStorage.setItem('sessionID', sessionID); // Save for page reload
@@ -82,7 +89,6 @@ async function loadClockStatus() {
   }
 }
 
-// Duration updater
 function updateDuration() {
   if (!clockInTime) return;
   const now = new Date();
@@ -100,8 +106,21 @@ async function clockIn() {
   if (!project_id) return alert("Please select a project.");
   const note = document.getElementById('note').value;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  // Use Luxon to get true local time with timezone
-  const datetime_local = luxon.DateTime.now().setZone(tz).toISO();
+
+  // Get custom date and time, or use current
+  let dateVal = document.getElementById('customDate').value;
+  let timeVal = document.getElementById('customTime').value;
+  let datetime_local;
+
+  if (dateVal && timeVal) {
+    // Build ISO string: combine date and time, use device tz
+    // Example: 2024-06-09T09:15:00 (no offset, so setZone adds it)
+    datetime_local = luxon.DateTime.fromISO(`${dateVal}T${timeVal}`, { zone: tz }).toISO();
+  } else {
+    // Fallback: now
+    datetime_local = luxon.DateTime.now().setZone(tz).toISO();
+  }
+
   const res = await fetch('/api/clock/in', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -128,7 +147,7 @@ async function clockOut() {
   if (!sessionID) return alert("No active session ID found, please reload or re-login.");
   const note = document.getElementById('noteOut').value;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  // Use Luxon to get true local time with timezone
+  // For clock out, allow custom time if desired, but here we'll keep as now for simplicity
   const datetime_local = luxon.DateTime.now().setZone(tz).toISO();
   await fetch('/api/clock/out', {
     method: 'POST',
