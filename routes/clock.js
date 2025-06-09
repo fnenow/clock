@@ -39,7 +39,7 @@ router.post('/in', async (req, res) => {
 
     await pool.query(
       `INSERT INTO clock_entries (worker_id, project_id, action, datetime_utc, datetime_local, timezone, note, pay_rate, session_id)
-       VALUES ($1, $2, 'in', $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, 'in', $4, $4, $5, $6, $7, $8)`,
       [
         worker_id,
         project_id,
