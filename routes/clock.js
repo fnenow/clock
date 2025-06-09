@@ -84,8 +84,8 @@ router.post('/out', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO(),
         dtLocal.toISO(),
+        dtUtc.toISO(),
         timezone,
         note,
         session_id
