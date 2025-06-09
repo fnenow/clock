@@ -137,7 +137,7 @@ async function clockIn() {
   if (dateVal && timeVal) {
     datetime_local = luxon.DateTime.fromISO(`${dateVal}T${timeVal}`, { zone: tz }).toISO();
   } else {
-    datetime_local = luxon.DateTime.now().setZone(tz).toISO();
+    datetime_local = luxon.DateTime.now().toISO();
   }
 
   const res = await fetch('/api/clock/in', {
@@ -175,7 +175,7 @@ async function clockOut() {
   if (dateVal && timeVal) {
     datetime_local = luxon.DateTime.fromISO(`${dateVal}T${timeVal}`, { zone: tz }).toISO();
   } else {
-    datetime_local = luxon.DateTime.now().setZone(tz).toISO();
+    datetime_local = luxon.DateTime.now().toISO();
   }
 
   await fetch('/api/clock/out', {
