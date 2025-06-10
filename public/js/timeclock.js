@@ -2,7 +2,9 @@ let currentWorker = null;
 let currentProject = null;
 let sessionID = null;
 let clockedIn = false;
-let clockInTime = null;
+
+let clockInLocal = null; // Luxon DateTime object for datetime_local
+let clockInUtc = null;   // Luxon DateTime object for datetime_utc
 
 // Restore sessionID if present in localStorage
 if (localStorage.getItem('sessionID')) {
@@ -21,7 +23,11 @@ function getCurrentDateAndTime() {
 // For updating clock every minute on form fields
 let clockInterval;
 function startClockUpdater() {
-  if (clockInterval) clearInterval(clockInterval);
+  if (clockInterval) {
+    clearInterval(clockInterval);
+    clearTimeout(clockInterval);
+  }
+
   function updateClockFields() {
     const { date, time } = getCurrentDateAndTime();
     if (document.getElementById('customDate')) document.getElementById('customDate').value = date;
@@ -29,8 +35,16 @@ function startClockUpdater() {
     if (document.getElementById('customDateOut')) document.getElementById('customDateOut').value = date;
     if (document.getElementById('customTimeOut')) document.getElementById('customTimeOut').value = time;
   }
+
   updateClockFields();
-  clockInterval = setInterval(updateClockFields, 60 * 1000);
+
+  // Schedule update at the start of the next minute
+  const now = new Date();
+  const msLeft = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+  clockInterval = setTimeout(function () {
+    updateClockFields();
+    clockInterval = setInterval(updateClockFields, 60 * 1000);
+  }, msLeft);
 }
 
 async function login() {
@@ -97,22 +111,25 @@ async function loadClockStatus() {
     currentProject = lastEntry.project_id;
     sessionID = lastEntry.session_id;
     localStorage.setItem('sessionID', sessionID);
-    clockInTime = new Date(lastEntry.datetime_local);
 
-    const { date, time } = getCurrentDateAndTime();
+    // Parse datetime_local and datetime_utc with Luxon
+    clockInLocal = luxon.DateTime.fromISO(lastEntry.datetime_local);
+    clockInUtc = luxon.DateTime.fromISO(lastEntry.datetime_utc);
+
+    let sinceText = clockInLocal.toLocaleString(luxon.DateTime.DATETIME_MED);
 
     let html = `<div class="mb-2">Clocked in to Project ID: <b>${lastEntry.project_id}</b> <br>
-      Since: ${clockInTime.toLocaleString()}<br>
+      Since: ${sinceText}<br>
       <span id="clock-duration" class="fw-bold"></span>
       </div>
       <form id="clockOutForm">
       <div class="mb-2">
         <label>Date:</label>
-        <input type="date" class="form-control" id="customDateOut" value="${date}">
+        <input type="date" class="form-control" id="customDateOut" value="${getCurrentDateAndTime().date}">
       </div>
       <div class="mb-2">
         <label>Time:</label>
-        <input type="time" class="form-control" id="customTimeOut" step="60" value="${time}">
+        <input type="time" class="form-control" id="customTimeOut" step="60" value="${getCurrentDateAndTime().time}">
       </div>
       <div class="mb-2">
         <label>Clock Out Note:</label>
@@ -130,12 +147,12 @@ async function loadClockStatus() {
 }
 
 function updateDuration() {
-  if (!clockInTime) return;
-  const now = new Date();
-  const diff = now - clockInTime;
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  const s = Math.floor((diff % 60000) / 1000);
+  if (!clockInUtc) return;
+  const nowUtc = luxon.DateTime.utc();
+  const diff = nowUtc.diff(clockInUtc, ['hours', 'minutes', 'seconds']).toObject();
+  const h = Math.floor(diff.hours || 0);
+  const m = Math.floor(diff.minutes || 0);
+  const s = Math.floor(diff.seconds || 0);
   document.getElementById('clock-duration').textContent =
     `Duration: ${h}h ${m}m ${s}s`;
   setTimeout(updateDuration, 1000);
