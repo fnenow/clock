@@ -17,7 +17,6 @@ async function getPayRate(worker_id) {
 router.post('/in', async (req, res) => {
   const { worker_id, project_id, note, datetime_local, timezone_offset } = req.body;
   try {
-    // Prevent double clock-in
     const already = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
@@ -33,10 +32,11 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // Parse datetime_local (no zone, so assume offset is correct for wall clock)
-    const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
-    // Compute UTC by subtracting the offset (offset is in minutes)
-    const dtUtc = dtLocal.minus({ minutes: timezone_offset });
+    // Parse, then truncate to minute!
+    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm")
+      .set({ second: 0, millisecond: 0 });
+    let dtUtc = dtLocal.minus({ minutes: timezone_offset })
+      .set({ second: 0, millisecond: 0 });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -46,9 +46,9 @@ router.post('/in', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO(),           // UTC timestamp
-        dtLocal.toISO(),         // Local time (as seen on clock)
-        timezone_offset,         // e.g. -420 (PDT)
+        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        timezone_offset,
         note,
         pay_rate,
         session_id
@@ -66,7 +66,6 @@ router.post('/out', async (req, res) => {
   try {
     if (!session_id) return res.status(400).json({ message: "Missing session_id" });
 
-    // Make sure there's an open clock-in session
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries WHERE worker_id=$1 AND project_id=$2 AND session_id=$3 AND action='in'
        AND NOT EXISTS (
@@ -77,10 +76,10 @@ router.post('/out', async (req, res) => {
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
 
-    // Parse local time as DateTime
-    const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
-    // Compute UTC by subtracting the offset
-    const dtUtc = dtLocal.minus({ minutes: timezone_offset });
+    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm")
+      .set({ second: 0, millisecond: 0 });
+    let dtUtc = dtLocal.minus({ minutes: timezone_offset })
+      .set({ second: 0, millisecond: 0 });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -90,9 +89,9 @@ router.post('/out', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO(),            // UTC timestamp
-        dtLocal.toISO(),          // Local time
-        timezone_offset,          // e.g. -420 (PDT)
+        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        timezone_offset,
         note,
         session_id
       ]
@@ -138,8 +137,8 @@ router.post('/force-out', async (req, res) => {
 
     const clockIn = rows[0];
     // Use current server UTC time for UTC, and local with same offset
-    const nowUtc = DateTime.utc();
-    const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset });
+    const nowUtc = DateTime.utc().set({ second: 0, millisecond: 0 });
+    const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset }).set({ second: 0, millisecond: 0 });
 
     await pool.query(
       `INSERT INTO clock_entries
@@ -149,8 +148,8 @@ router.post('/force-out', async (req, res) => {
       [
         worker_id,
         project_id,
-        nowUtc.toISO(),
-        nowLocal.toISO(),
+        nowUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        nowLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
         clockIn.timezone_offset,
         'Admin forced clock out',
         admin_name,
