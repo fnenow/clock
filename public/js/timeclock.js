@@ -9,6 +9,30 @@ if (localStorage.getItem('sessionID')) {
   sessionID = localStorage.getItem('sessionID');
 }
 
+function getCurrentDateAndTime() {
+  const now = luxon.DateTime.now();
+  return {
+    date: now.toFormat('yyyy-MM-dd'),
+    time: now.toFormat('HH:mm'),
+    offset: now.offset // in minutes
+  };
+}
+
+// For updating clock every minute on form fields
+let clockInterval;
+function startClockUpdater() {
+  if (clockInterval) clearInterval(clockInterval);
+  function updateClockFields() {
+    const { date, time } = getCurrentDateAndTime();
+    if (document.getElementById('customDate')) document.getElementById('customDate').value = date;
+    if (document.getElementById('customTime')) document.getElementById('customTime').value = time;
+    if (document.getElementById('customDateOut')) document.getElementById('customDateOut').value = date;
+    if (document.getElementById('customTimeOut')) document.getElementById('customTimeOut').value = time;
+  }
+  updateClockFields();
+  clockInterval = setInterval(updateClockFields, 60 * 1000);
+}
+
 async function login() {
   const workerId = document.getElementById('workerId').value;
   const password = document.getElementById('password').value;
@@ -37,14 +61,10 @@ async function loadClockStatus() {
   if (!clockedIn) {
     sessionID = null;
     localStorage.removeItem('sessionID');
-    // Not clocked in: show project selection and clock in
     const projectRes = await fetch(`/api/worker/projects/${currentWorker.worker_id}`);
     const projects = await projectRes.json();
 
-    // Get current local time in browser, format for date and time inputs
-    const now = luxon.DateTime.now();
-    const dateVal = now.toFormat('yyyy-MM-dd');
-    const timeVal = now.toFormat('HH:mm:ss');
+    const { date, time } = getCurrentDateAndTime();
 
     let html = `<form id="clockInForm"><div class="mb-2"><label>Project:</label>`;
     for (const p of projects) {
@@ -53,15 +73,14 @@ async function loadClockStatus() {
         <label class="form-check-label" for="prj${p.id}">${p.name}</label>
       </div>`;
     }
-    // Date and time inputs default to "now"
     html += `</div>
       <div class="mb-2">
         <label>Date:</label>
-        <input type="date" class="form-control" id="customDate" value="${dateVal}">
+        <input type="date" class="form-control" id="customDate" value="${date}">
       </div>
       <div class="mb-2">
         <label>Time:</label>
-        <input type="time" class="form-control" id="customTime" step="1" value="${timeVal}">
+        <input type="time" class="form-control" id="customTime" step="60" value="${time}">
       </div>
       <div class="mb-2">
         <label>Notes:</label>
@@ -73,16 +92,14 @@ async function loadClockStatus() {
         <button class="btn btn-link" onclick="showChangePassword()">Change Password</button>
       </div>`;
     document.getElementById('clock-status').innerHTML = html;
+    startClockUpdater();
   } else {
     currentProject = lastEntry.project_id;
     sessionID = lastEntry.session_id;
-    localStorage.setItem('sessionID', sessionID); // Save for page reload
+    localStorage.setItem('sessionID', sessionID);
     clockInTime = new Date(lastEntry.datetime_local);
 
-    // For clock-out, also pre-fill date/time to now
-    const now = luxon.DateTime.now();
-    const dateVal = now.toFormat('yyyy-MM-dd');
-    const timeVal = now.toFormat('HH:mm:ss');
+    const { date, time } = getCurrentDateAndTime();
 
     let html = `<div class="mb-2">Clocked in to Project ID: <b>${lastEntry.project_id}</b> <br>
       Since: ${clockInTime.toLocaleString()}<br>
@@ -91,11 +108,11 @@ async function loadClockStatus() {
       <form id="clockOutForm">
       <div class="mb-2">
         <label>Date:</label>
-        <input type="date" class="form-control" id="customDateOut" value="${dateVal}">
+        <input type="date" class="form-control" id="customDateOut" value="${date}">
       </div>
       <div class="mb-2">
         <label>Time:</label>
-        <input type="time" class="form-control" id="customTimeOut" step="1" value="${timeVal}">
+        <input type="time" class="form-control" id="customTimeOut" step="60" value="${time}">
       </div>
       <div class="mb-2">
         <label>Clock Out Note:</label>
@@ -108,6 +125,7 @@ async function loadClockStatus() {
       </div>`;
     document.getElementById('clock-status').innerHTML = html;
     updateDuration();
+    startClockUpdater();
   }
 }
 
@@ -123,23 +141,26 @@ function updateDuration() {
   setTimeout(updateDuration, 1000);
 }
 
+function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
+  const dateVal = document.getElementById(dateFieldId).value;
+  const timeVal = document.getElementById(timeFieldId).value;
+  let dt;
+  if (dateVal && timeVal) {
+    dt = luxon.DateTime.fromISO(`${dateVal}T${timeVal}`);
+  } else {
+    dt = luxon.DateTime.now();
+  }
+  return {
+    datetime_local: dt.toFormat("yyyy-MM-dd'T'HH:mm"),
+    timezone_offset: dt.offset // in minutes, e.g. -420 for PDT
+  };
+}
+
 async function clockIn() {
   const project_id = document.querySelector('input[name="project"]:checked')?.value;
   if (!project_id) return alert("Please select a project.");
   const note = document.getElementById('note').value;
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  // Always get the values from the date/time fields (can be default or changed)
-  let dateVal = document.getElementById('customDate').value;
-  let timeVal = document.getElementById('customTime').value;
-  let datetime_local;
-
-  if (dateVal && timeVal) {
-    datetime_local = luxon.DateTime.fromISO(`${dateVal}T${timeVal}`, { zone: tz }).toISO();
-  } else {
-    datetime_local = luxon.DateTime.now().setZone(tz).toISO();
-  }
-
+  const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDate', 'customTime');
   const res = await fetch('/api/clock/in', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -148,7 +169,7 @@ async function clockIn() {
       project_id,
       note,
       datetime_local,
-      timezone: tz
+      timezone_offset
     })
   });
   const data = await res.json();
@@ -165,19 +186,7 @@ async function clockIn() {
 async function clockOut() {
   if (!sessionID) return alert("No active session ID found, please reload or re-login.");
   const note = document.getElementById('noteOut').value;
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  // Always get the values from the date/time fields (can be default or changed)
-  let dateVal = document.getElementById('customDateOut').value;
-  let timeVal = document.getElementById('customTimeOut').value;
-  let datetime_local;
-
-  if (dateVal && timeVal) {
-    datetime_local = luxon.DateTime.fromISO(`${dateVal}T${timeVal}`, { zone: tz }).toISO();
-  } else {
-    datetime_local = luxon.DateTime.now().setZone(tz).toISO();
-  }
-
+  const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDateOut', 'customTimeOut');
   await fetch('/api/clock/out', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -186,7 +195,7 @@ async function clockOut() {
       project_id: currentProject,
       note,
       datetime_local,
-      timezone: tz,
+      timezone_offset,
       session_id: sessionID
     })
   });
