@@ -4,6 +4,7 @@ const router = express.Router();
 const pool = require('../db');
 const { v4: uuidv4 } = require('uuid');
 
+// Helper: Get current pay rate for worker
 async function getPayRate(worker_id) {
   const q = await pool.query(
     "SELECT rate FROM pay_rates WHERE worker_id=$1 AND (end_date IS NULL OR end_date >= CURRENT_DATE) ORDER BY start_date DESC LIMIT 1",
@@ -16,6 +17,7 @@ async function getPayRate(worker_id) {
 router.post('/in', async (req, res) => {
   const { worker_id, project_id, note, datetime_local, timezone_offset } = req.body;
   try {
+    // Prevent double clock-in
     const already = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
@@ -31,10 +33,10 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // Parse local time as ISO (includes offset!)
-    const dtLocal = DateTime.fromISO(datetime_local);
-    // Compute UTC from local
-    const dtUtc = dtLocal.toUTC();
+    // Parse local time as DateTime
+    const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
+    // Compute UTC by subtracting the offset
+    const dtUtc = dtLocal.minus({ minutes: timezone_offset });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -44,9 +46,9 @@ router.post('/in', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO(),
-        dtLocal.toISO(),
-        timezone_offset,
+        dtUtc.toISO(),           // UTC timestamp
+        dtLocal.toISO(),         // Local time
+        timezone_offset,         // e.g. -420 (PDT)
         note,
         pay_rate,
         session_id
@@ -64,6 +66,7 @@ router.post('/out', async (req, res) => {
   try {
     if (!session_id) return res.status(400).json({ message: "Missing session_id" });
 
+    // Make sure there's an open clock-in session
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries WHERE worker_id=$1 AND project_id=$2 AND session_id=$3 AND action='in'
        AND NOT EXISTS (
@@ -74,8 +77,10 @@ router.post('/out', async (req, res) => {
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
 
-    const dtLocal = DateTime.fromISO(datetime_local);
-    const dtUtc = dtLocal.toUTC();
+    // Parse local time as DateTime
+    const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
+    // Compute UTC by subtracting the offset
+    const dtUtc = dtLocal.minus({ minutes: timezone_offset });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -85,9 +90,9 @@ router.post('/out', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO(),
-        dtLocal.toISO(),
-        timezone_offset,
+        dtUtc.toISO(),            // UTC timestamp
+        dtLocal.toISO(),          // Local time
+        timezone_offset,          // e.g. -420 (PDT)
         note,
         session_id
       ]
@@ -114,10 +119,11 @@ router.get('/status/:worker_id', async (req, res) => {
   res.json(q.rows[0] || {});
 });
 
-// ADMIN FORCE CLOCK OUT (optional, for admins)
+// ADMIN FORCE CLOCK OUT
 router.post('/force-out', async (req, res) => {
   const { worker_id, project_id, admin_name } = req.body;
   try {
+    // Find latest open "in" entry
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
@@ -132,9 +138,9 @@ router.post('/force-out', async (req, res) => {
     if (!rows.length) return res.status(400).json({ message: "No active clock-in session found" });
 
     const clockIn = rows[0];
-    // Use current server UTC time for UTC, and estimate local with same offset
+    // Use current server UTC time for UTC, and server's local offset for local (optional)
     const nowUtc = DateTime.utc();
-    const nowLocal = nowUtc.setZone('UTC').plus({ minutes: clockIn.timezone_offset });
+    const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset });
 
     await pool.query(
       `INSERT INTO clock_entries
