@@ -116,7 +116,7 @@ async function loadClockStatus() {
     clockInLocal = luxon.DateTime.fromISO(lastEntry.datetime_local);
     clockInUtc = luxon.DateTime.fromISO(lastEntry.datetime_utc);
 
-    let sinceText = clockInLocal.toLocaleString(luxon.DateTime.DATETIME_MED);
+    let sinceText = clockInLocal;
 
     let html = `<div class="mb-2">Clocked in to Project ID: <b>${lastEntry.project_id}</b> <br>
       Since: ${sinceText}<br>
