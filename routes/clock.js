@@ -33,9 +33,9 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // Parse local time as DateTime
+    // Parse datetime_local (no zone, so assume offset is correct for wall clock)
     const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
-    // Compute UTC by subtracting the offset
+    // Compute UTC by subtracting the offset (offset is in minutes)
     const dtUtc = dtLocal.minus({ minutes: timezone_offset });
 
     await pool.query(
@@ -47,7 +47,7 @@ router.post('/in', async (req, res) => {
         worker_id,
         project_id,
         dtUtc.toISO(),           // UTC timestamp
-        dtLocal.toISO(),         // Local time
+        dtLocal.toISO(),         // Local time (as seen on clock)
         timezone_offset,         // e.g. -420 (PDT)
         note,
         pay_rate,
@@ -119,11 +119,10 @@ router.get('/status/:worker_id', async (req, res) => {
   res.json(q.rows[0] || {});
 });
 
-// ADMIN FORCE CLOCK OUT
+// ADMIN FORCE CLOCK OUT (optional)
 router.post('/force-out', async (req, res) => {
   const { worker_id, project_id, admin_name } = req.body;
   try {
-    // Find latest open "in" entry
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
@@ -138,7 +137,7 @@ router.post('/force-out', async (req, res) => {
     if (!rows.length) return res.status(400).json({ message: "No active clock-in session found" });
 
     const clockIn = rows[0];
-    // Use current server UTC time for UTC, and server's local offset for local (optional)
+    // Use current server UTC time for UTC, and local with same offset
     const nowUtc = DateTime.utc();
     const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset });
 
