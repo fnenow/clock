@@ -2,9 +2,9 @@ const { DateTime } = require('luxon');
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { v4: uuidv4 } = require('uuid'); // For session_id
+const { v4: uuidv4 } = require('uuid');
 
-// Helper to get current pay rate for a worker
+// Helper: Get current pay rate for worker
 async function getPayRate(worker_id) {
   const q = await pool.query(
     "SELECT rate FROM pay_rates WHERE worker_id=$1 AND (end_date IS NULL OR end_date >= CURRENT_DATE) ORDER BY start_date DESC LIMIT 1",
@@ -13,16 +13,16 @@ async function getPayRate(worker_id) {
   return q.rows[0]?.rate || 0;
 }
 
-// Worker clocks in (returns session_id)
+// CLOCK IN
 router.post('/in', async (req, res) => {
-  const { worker_id, project_id, note, datetime_local, timezone } = req.body;
+  const { worker_id, project_id, note, datetime_local, timezone_offset } = req.body;
   try {
-    // Only allow if not already clocked in
+    // Prevent double clock-in
     const already = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
        AND NOT EXISTS (
-         SELECT 1 FROM clock_entries as out
+         SELECT 1 FROM clock_entries AS out
          WHERE out.worker_id=$1 AND out.project_id=$2 AND out.action='out' AND out.datetime_local > clock_entries.datetime_local
        )`,
       [worker_id, project_id]
@@ -33,19 +33,22 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // Use Luxon to handle time conversion
-    const dtLocal = DateTime.fromISO(datetime_local, { zone: timezone });
-    const dtUtc = dtLocal.toUTC();
+    // Parse local time as DateTime
+    const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
+    // Compute UTC by subtracting the offset
+    const dtUtc = dtLocal.minus({ minutes: timezone_offset });
 
     await pool.query(
-      `INSERT INTO clock_entries (worker_id, project_id, action, datetime_utc, datetime_local, timezone, note, pay_rate, session_id)
-       VALUES ($1, $2, 'in', $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO clock_entries 
+        (worker_id, project_id, action, datetime_utc, datetime_local, timezone_offset, note, pay_rate, session_id)
+       VALUES 
+        ($1, $2, 'in', $3, $4, $5, $6, $7, $8)`,
       [
         worker_id,
         project_id,
-        dtUtc.toISO(),
-        dtLocal.toISO(),
-        timezone,
+        dtUtc.toISO(),           // UTC timestamp
+        dtLocal.toISO(),         // Local time
+        timezone_offset,         // e.g. -420 (PDT)
         note,
         pay_rate,
         session_id
@@ -57,36 +60,39 @@ router.post('/in', async (req, res) => {
   }
 });
 
-// Worker clocks out (requires session_id)
+// CLOCK OUT
 router.post('/out', async (req, res) => {
-  const { worker_id, project_id, note, datetime_local, timezone, session_id } = req.body;
+  const { worker_id, project_id, note, datetime_local, timezone_offset, session_id } = req.body;
   try {
     if (!session_id) return res.status(400).json({ message: "Missing session_id" });
 
-    // Check if matching clock-in exists and hasn't been closed
+    // Make sure there's an open clock-in session
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries WHERE worker_id=$1 AND project_id=$2 AND session_id=$3 AND action='in'
        AND NOT EXISTS (
-         SELECT 1 FROM clock_entries as out
+         SELECT 1 FROM clock_entries AS out
          WHERE out.session_id=$3 AND out.action='out'
        )`,
       [worker_id, project_id, session_id]
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
 
-    // Use Luxon to handle time conversion
-    const dtLocal = DateTime.fromISO(datetime_local, { zone: timezone });
-    const dtUtc = dtLocal.toUTC();
+    // Parse local time as DateTime
+    const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
+    // Compute UTC by subtracting the offset
+    const dtUtc = dtLocal.minus({ minutes: timezone_offset });
 
     await pool.query(
-      `INSERT INTO clock_entries (worker_id, project_id, action, datetime_utc, datetime_local, timezone, note, session_id)
-       VALUES ($1, $2, 'out', $3, $4, $5, $6, $7)`,
+      `INSERT INTO clock_entries 
+        (worker_id, project_id, action, datetime_utc, datetime_local, timezone_offset, note, session_id)
+       VALUES 
+        ($1, $2, 'out', $3, $4, $5, $6, $7)`,
       [
         worker_id,
         project_id,
-        dtUtc.toISO(),
-        dtLocal.toISO(),
-        timezone,
+        dtUtc.toISO(),            // UTC timestamp
+        dtLocal.toISO(),          // Local time
+        timezone_offset,          // e.g. -420 (PDT)
         note,
         session_id
       ]
@@ -97,14 +103,14 @@ router.post('/out', async (req, res) => {
   }
 });
 
-// Get current clock status for worker (returns latest clock-in with open session_id, if any)
+// GET CURRENT CLOCK STATUS
 router.get('/status/:worker_id', async (req, res) => {
   const { worker_id } = req.params;
   const q = await pool.query(
     `SELECT * FROM clock_entries
      WHERE worker_id=$1 AND action='in'
      AND NOT EXISTS (
-       SELECT 1 FROM clock_entries as out
+       SELECT 1 FROM clock_entries AS out
        WHERE out.worker_id=$1 AND out.project_id=clock_entries.project_id AND out.session_id=clock_entries.session_id AND out.action='out'
      )
      ORDER BY datetime_utc DESC LIMIT 1`,
@@ -113,16 +119,16 @@ router.get('/status/:worker_id', async (req, res) => {
   res.json(q.rows[0] || {});
 });
 
-// Admin force clock out (uses session_id from open session)
+// ADMIN FORCE CLOCK OUT
 router.post('/force-out', async (req, res) => {
   const { worker_id, project_id, admin_name } = req.body;
   try {
-    // Find the latest open "in" entry for this worker/project
+    // Find latest open "in" entry
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
        AND NOT EXISTS (
-         SELECT 1 FROM clock_entries as out
+         SELECT 1 FROM clock_entries AS out
          WHERE out.worker_id=$1 AND out.project_id=$2 AND out.session_id=clock_entries.session_id AND out.action='out'
        )
        ORDER BY datetime_local DESC
@@ -132,20 +138,21 @@ router.post('/force-out', async (req, res) => {
     if (!rows.length) return res.status(400).json({ message: "No active clock-in session found" });
 
     const clockIn = rows[0];
+    // Use current server UTC time for UTC, and server's local offset for local (optional)
     const nowUtc = DateTime.utc();
-    const localTime = nowUtc.setZone(clockIn.timezone);
+    const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset });
 
     await pool.query(
       `INSERT INTO clock_entries
-         (worker_id, project_id, action, datetime_utc, datetime_local, timezone, note, admin_forced_by, session_id)
+         (worker_id, project_id, action, datetime_utc, datetime_local, timezone_offset, note, admin_forced_by, session_id)
        VALUES
          ($1, $2, 'out', $3, $4, $5, $6, $7, $8)`,
       [
         worker_id,
         project_id,
         nowUtc.toISO(),
-        localTime.toISO(),
-        clockIn.timezone,
+        nowLocal.toISO(),
+        clockIn.timezone_offset,
         'Admin forced clock out',
         admin_name,
         clockIn.session_id
