@@ -4,7 +4,6 @@ let sessionID = null;
 let clockedIn = false;
 let clockInTime = null;
 
-// Restore sessionID if present in localStorage
 if (localStorage.getItem('sessionID')) {
   sessionID = localStorage.getItem('sessionID');
 }
@@ -18,10 +17,13 @@ function getCurrentDateAndTime() {
   };
 }
 
-// For updating clock every minute on form fields
 let clockInterval;
 function startClockUpdater() {
-  if (clockInterval) clearInterval(clockInterval);
+  if (clockInterval) {
+    clearInterval(clockInterval);
+    clearTimeout(clockInterval);
+  }
+
   function updateClockFields() {
     const { date, time } = getCurrentDateAndTime();
     if (document.getElementById('customDate')) document.getElementById('customDate').value = date;
@@ -29,8 +31,16 @@ function startClockUpdater() {
     if (document.getElementById('customDateOut')) document.getElementById('customDateOut').value = date;
     if (document.getElementById('customTimeOut')) document.getElementById('customTimeOut').value = time;
   }
+
   updateClockFields();
-  clockInterval = setInterval(updateClockFields, 60 * 1000);
+
+  // Schedule update at the start of the next minute
+  const now = new Date();
+  const msLeft = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+  clockInterval = setTimeout(function () {
+    updateClockFields();
+    clockInterval = setInterval(updateClockFields, 60 * 1000);
+  }, msLeft);
 }
 
 async function login() {
