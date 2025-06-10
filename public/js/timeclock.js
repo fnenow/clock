@@ -4,6 +4,7 @@ let sessionID = null;
 let clockedIn = false;
 let clockInTime = null;
 
+// Restore sessionID if present in localStorage
 if (localStorage.getItem('sessionID')) {
   sessionID = localStorage.getItem('sessionID');
 }
@@ -17,13 +18,10 @@ function getCurrentDateAndTime() {
   };
 }
 
+// For updating clock every minute on form fields
 let clockInterval;
 function startClockUpdater() {
-  if (clockInterval) {
-    clearInterval(clockInterval);
-    clearTimeout(clockInterval);
-  }
-
+  if (clockInterval) clearInterval(clockInterval);
   function updateClockFields() {
     const { date, time } = getCurrentDateAndTime();
     if (document.getElementById('customDate')) document.getElementById('customDate').value = date;
@@ -31,16 +29,8 @@ function startClockUpdater() {
     if (document.getElementById('customDateOut')) document.getElementById('customDateOut').value = date;
     if (document.getElementById('customTimeOut')) document.getElementById('customTimeOut').value = time;
   }
-
   updateClockFields();
-
-  // Schedule update at the start of the next minute
-  const now = new Date();
-  const msLeft = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
-  clockInterval = setTimeout(function () {
-    updateClockFields();
-    clockInterval = setInterval(updateClockFields, 60 * 1000);
-  }, msLeft);
+  clockInterval = setInterval(updateClockFields, 60 * 1000);
 }
 
 async function login() {
@@ -161,8 +151,8 @@ function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
     dt = luxon.DateTime.now();
   }
   return {
-    datetime_local: dt.toISO(), // ISO string with offset!
-    timezone_offset: dt.offset  // in minutes, e.g. -420 for PDT
+    datetime_local: dt.toFormat("yyyy-MM-dd'T'HH:mm"),
+    timezone_offset: dt.offset // in minutes, e.g. -420 for PDT
   };
 }
 
