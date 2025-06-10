@@ -17,6 +17,7 @@ async function getPayRate(worker_id) {
 router.post('/in', async (req, res) => {
   const { worker_id, project_id, note, datetime_local, timezone_offset } = req.body;
   try {
+    // Prevent double clock-in
     const already = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
@@ -32,11 +33,9 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // Parse, then truncate to minute!
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm")
-      .set({ second: 0, millisecond: 0 });
-    let dtUtc = dtLocal.minus({ minutes: timezone_offset })
-      .set({ second: 0, millisecond: 0 });
+    // Truncate to minute (no seconds, no milliseconds)
+    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
+    let dtUtc = dtLocal.minus({ minutes: timezone_offset }).set({ second: 0, millisecond: 0 });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -66,6 +65,7 @@ router.post('/out', async (req, res) => {
   try {
     if (!session_id) return res.status(400).json({ message: "Missing session_id" });
 
+    // Make sure there's an open clock-in session
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries WHERE worker_id=$1 AND project_id=$2 AND session_id=$3 AND action='in'
        AND NOT EXISTS (
@@ -76,10 +76,8 @@ router.post('/out', async (req, res) => {
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
 
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm")
-      .set({ second: 0, millisecond: 0 });
-    let dtUtc = dtLocal.minus({ minutes: timezone_offset })
-      .set({ second: 0, millisecond: 0 });
+    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
+    let dtUtc = dtLocal.minus({ minutes: timezone_offset }).set({ second: 0, millisecond: 0 });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -118,10 +116,11 @@ router.get('/status/:worker_id', async (req, res) => {
   res.json(q.rows[0] || {});
 });
 
-// ADMIN FORCE CLOCK OUT (optional)
+// ADMIN FORCE CLOCK OUT
 router.post('/force-out', async (req, res) => {
   const { worker_id, project_id, admin_name } = req.body;
   try {
+    // Find latest open "in" entry
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
@@ -136,7 +135,7 @@ router.post('/force-out', async (req, res) => {
     if (!rows.length) return res.status(400).json({ message: "No active clock-in session found" });
 
     const clockIn = rows[0];
-    // Use current server UTC time for UTC, and local with same offset
+    // Use current server UTC time, truncate to minute
     const nowUtc = DateTime.utc().set({ second: 0, millisecond: 0 });
     const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset }).set({ second: 0, millisecond: 0 });
 
