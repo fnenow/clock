@@ -1,167 +1,239 @@
-const { DateTime } = require('luxon');
-const express = require('express');
-const router = express.Router();
-const pool = require('../db');
-const { v4: uuidv4 } = require('uuid');
+let currentWorker = null;
+let currentProject = null;
+let sessionID = null;
+let clockedIn = false;
+let clockInTime = null;
 
-// Helper: Get current pay rate for worker
-async function getPayRate(worker_id) {
-  const q = await pool.query(
-    "SELECT rate FROM pay_rates WHERE worker_id=$1 AND (end_date IS NULL OR end_date >= CURRENT_DATE) ORDER BY start_date DESC LIMIT 1",
-    [worker_id]
-  );
-  return q.rows[0]?.rate || 0;
+// Restore sessionID if present in localStorage
+if (localStorage.getItem('sessionID')) {
+  sessionID = localStorage.getItem('sessionID');
 }
 
-// CLOCK IN
-router.post('/in', async (req, res) => {
-  const { worker_id, project_id, note, datetime_local, timezone_offset } = req.body;
-  try {
-    // Prevent double clock-in
-    const already = await pool.query(
-      `SELECT * FROM clock_entries
-       WHERE worker_id=$1 AND project_id=$2 AND action='in'
-       AND NOT EXISTS (
-         SELECT 1 FROM clock_entries AS out
-         WHERE out.worker_id=$1 AND out.project_id=$2 AND out.action='out' AND out.datetime_local > clock_entries.datetime_local
-       )`,
-      [worker_id, project_id]
-    );
-    if (already.rows.length > 0)
-      return res.status(400).json({ message: 'Already clocked in to this project' });
+function getCurrentDateAndTime() {
+  const now = luxon.DateTime.now();
+  return {
+    date: now.toFormat('yyyy-MM-dd'),
+    time: now.toFormat('HH:mm'),
+    offset: now.offset // in minutes
+  };
+}
 
-    const pay_rate = await getPayRate(worker_id);
-    const session_id = uuidv4();
-
-    // Parse local time as DateTime
-    const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
-    // Compute UTC by subtracting the offset
-    const dtUtc = dtLocal.minus({ minutes: timezone_offset });
-
-    await pool.query(
-      `INSERT INTO clock_entries 
-        (worker_id, project_id, action, datetime_utc, datetime_local, timezone_offset, note, pay_rate, session_id)
-       VALUES 
-        ($1, $2, 'in', $3, $4, $5, $6, $7, $8)`,
-      [
-        worker_id,
-        project_id,
-        dtUtc.toISO(),           // UTC timestamp
-        dtLocal.toISO(),         // Local time
-        timezone_offset,         // e.g. -420 (PDT)
-        note,
-        pay_rate,
-        session_id
-      ]
-    );
-    res.json({ success: true, session_id });
-  } catch (e) {
-    res.status(500).json({ message: e.message });
+// For updating clock every minute on form fields
+let clockInterval;
+function startClockUpdater() {
+  if (clockInterval) clearInterval(clockInterval);
+  function updateClockFields() {
+    const { date, time } = getCurrentDateAndTime();
+    if (document.getElementById('customDate')) document.getElementById('customDate').value = date;
+    if (document.getElementById('customTime')) document.getElementById('customTime').value = time;
+    if (document.getElementById('customDateOut')) document.getElementById('customDateOut').value = date;
+    if (document.getElementById('customTimeOut')) document.getElementById('customTimeOut').value = time;
   }
-});
+  updateClockFields();
+  clockInterval = setInterval(updateClockFields, 60 * 1000);
+}
 
-// CLOCK OUT
-router.post('/out', async (req, res) => {
-  const { worker_id, project_id, note, datetime_local, timezone_offset, session_id } = req.body;
-  try {
-    if (!session_id) return res.status(400).json({ message: "Missing session_id" });
-
-    // Make sure there's an open clock-in session
-    const { rows } = await pool.query(
-      `SELECT * FROM clock_entries WHERE worker_id=$1 AND project_id=$2 AND session_id=$3 AND action='in'
-       AND NOT EXISTS (
-         SELECT 1 FROM clock_entries AS out
-         WHERE out.session_id=$3 AND out.action='out'
-       )`,
-      [worker_id, project_id, session_id]
-    );
-    if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
-
-    // Parse local time as DateTime
-    const dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm");
-    // Compute UTC by subtracting the offset
-    const dtUtc = dtLocal.minus({ minutes: timezone_offset });
-
-    await pool.query(
-      `INSERT INTO clock_entries 
-        (worker_id, project_id, action, datetime_utc, datetime_local, timezone_offset, note, session_id)
-       VALUES 
-        ($1, $2, 'out', $3, $4, $5, $6, $7)`,
-      [
-        worker_id,
-        project_id,
-        dtUtc.toISO(),            // UTC timestamp
-        dtLocal.toISO(),          // Local time
-        timezone_offset,          // e.g. -420 (PDT)
-        note,
-        session_id
-      ]
-    );
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ message: e.message });
+async function login() {
+  const workerId = document.getElementById('workerId').value;
+  const password = document.getElementById('password').value;
+  const res = await fetch('/api/worker/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ worker_id: workerId, password })
+  });
+  const data = await res.json();
+  if (data.success) {
+    currentWorker = data.worker;
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('clock-section').style.display = '';
+    document.getElementById('greeting').textContent = `Hi, ${currentWorker.name}`;
+    loadClockStatus();
+  } else {
+    alert(data.message || 'Login failed');
   }
-});
+}
 
-// GET CURRENT CLOCK STATUS
-router.get('/status/:worker_id', async (req, res) => {
-  const { worker_id } = req.params;
-  const q = await pool.query(
-    `SELECT * FROM clock_entries
-     WHERE worker_id=$1 AND action='in'
-     AND NOT EXISTS (
-       SELECT 1 FROM clock_entries AS out
-       WHERE out.worker_id=$1 AND out.project_id=clock_entries.project_id AND out.session_id=clock_entries.session_id AND out.action='out'
-     )
-     ORDER BY datetime_utc DESC LIMIT 1`,
-    [worker_id]
-  );
-  res.json(q.rows[0] || {});
-});
+async function loadClockStatus() {
+  const res = await fetch(`/api/clock/status/${currentWorker.worker_id}`);
+  const lastEntry = await res.json();
+  clockedIn = lastEntry && lastEntry.action === 'in';
 
-// ADMIN FORCE CLOCK OUT
-router.post('/force-out', async (req, res) => {
-  const { worker_id, project_id, admin_name } = req.body;
-  try {
-    // Find latest open "in" entry
-    const { rows } = await pool.query(
-      `SELECT * FROM clock_entries
-       WHERE worker_id=$1 AND project_id=$2 AND action='in'
-       AND NOT EXISTS (
-         SELECT 1 FROM clock_entries AS out
-         WHERE out.worker_id=$1 AND out.project_id=$2 AND out.session_id=clock_entries.session_id AND out.action='out'
-       )
-       ORDER BY datetime_local DESC
-       LIMIT 1
-      `, [worker_id, project_id]
-    );
-    if (!rows.length) return res.status(400).json({ message: "No active clock-in session found" });
+  if (!clockedIn) {
+    sessionID = null;
+    localStorage.removeItem('sessionID');
+    const projectRes = await fetch(`/api/worker/projects/${currentWorker.worker_id}`);
+    const projects = await projectRes.json();
 
-    const clockIn = rows[0];
-    // Use current server UTC time for UTC, and server's local offset for local (optional)
-    const nowUtc = DateTime.utc();
-    const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset });
+    const { date, time } = getCurrentDateAndTime();
 
-    await pool.query(
-      `INSERT INTO clock_entries
-         (worker_id, project_id, action, datetime_utc, datetime_local, timezone_offset, note, admin_forced_by, session_id)
-       VALUES
-         ($1, $2, 'out', $3, $4, $5, $6, $7, $8)`,
-      [
-        worker_id,
-        project_id,
-        nowUtc.toISO(),
-        nowLocal.toISO(),
-        clockIn.timezone_offset,
-        'Admin forced clock out',
-        admin_name,
-        clockIn.session_id
-      ]
-    );
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ message: e.message });
+    let html = `<form id="clockInForm"><div class="mb-2"><label>Project:</label>`;
+    for (const p of projects) {
+      html += `<div class="form-check">
+        <input class="form-check-input" type="radio" name="project" value="${p.id}" id="prj${p.id}">
+        <label class="form-check-label" for="prj${p.id}">${p.name}</label>
+      </div>`;
+    }
+    html += `</div>
+      <div class="mb-2">
+        <label>Date:</label>
+        <input type="date" class="form-control" id="customDate" value="${date}">
+      </div>
+      <div class="mb-2">
+        <label>Time:</label>
+        <input type="time" class="form-control" id="customTime" step="60" value="${time}">
+      </div>
+      <div class="mb-2">
+        <label>Notes:</label>
+        <textarea class="form-control" id="note" rows="3" placeholder="Enter notes here"></textarea>
+      </div>
+      <button type="button" class="btn btn-success" onclick="clockIn()">Clock In</button>
+      </form>
+      <div class="mt-2">
+        <button class="btn btn-link" onclick="showChangePassword()">Change Password</button>
+      </div>`;
+    document.getElementById('clock-status').innerHTML = html;
+    startClockUpdater();
+  } else {
+    currentProject = lastEntry.project_id;
+    sessionID = lastEntry.session_id;
+    localStorage.setItem('sessionID', sessionID);
+    clockInTime = new Date(lastEntry.datetime_local);
+
+    const { date, time } = getCurrentDateAndTime();
+
+    let html = `<div class="mb-2">Clocked in to Project ID: <b>${lastEntry.project_id}</b> <br>
+      Since: ${clockInTime.toLocaleString()}<br>
+      <span id="clock-duration" class="fw-bold"></span>
+      </div>
+      <form id="clockOutForm">
+      <div class="mb-2">
+        <label>Date:</label>
+        <input type="date" class="form-control" id="customDateOut" value="${date}">
+      </div>
+      <div class="mb-2">
+        <label>Time:</label>
+        <input type="time" class="form-control" id="customTimeOut" step="60" value="${time}">
+      </div>
+      <div class="mb-2">
+        <label>Clock Out Note:</label>
+        <textarea class="form-control" id="noteOut" rows="3" placeholder="Enter notes here"></textarea>
+      </div>
+      <button type="button" class="btn btn-danger" onclick="clockOut()">Clock Out</button>
+      </form>
+      <div class="mt-2">
+        <button class="btn btn-link" onclick="showChangePassword()">Change Password</button>
+      </div>`;
+    document.getElementById('clock-status').innerHTML = html;
+    updateDuration();
+    startClockUpdater();
   }
-});
+}
 
-module.exports = router;
+function updateDuration() {
+  if (!clockInTime) return;
+  const now = new Date();
+  const diff = now - clockInTime;
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  document.getElementById('clock-duration').textContent =
+    `Duration: ${h}h ${m}m ${s}s`;
+  setTimeout(updateDuration, 1000);
+}
+
+function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
+  const dateVal = document.getElementById(dateFieldId).value;
+  const timeVal = document.getElementById(timeFieldId).value;
+  let dt;
+  if (dateVal && timeVal) {
+    dt = luxon.DateTime.fromISO(`${dateVal}T${timeVal}`);
+  } else {
+    dt = luxon.DateTime.now();
+  }
+  return {
+    datetime_local: dt.toISO(), // ISO string with offset!
+    timezone_offset: dt.offset  // in minutes, e.g. -420 for PDT
+  };
+}
+
+async function clockIn() {
+  const project_id = document.querySelector('input[name="project"]:checked')?.value;
+  if (!project_id) return alert("Please select a project.");
+  const note = document.getElementById('note').value;
+  const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDate', 'customTime');
+  const res = await fetch('/api/clock/in', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      worker_id: currentWorker.worker_id,
+      project_id,
+      note,
+      datetime_local,
+      timezone_offset
+    })
+  });
+  const data = await res.json();
+  if (data.success && data.session_id) {
+    sessionID = data.session_id;
+    localStorage.setItem('sessionID', sessionID);
+  } else {
+    sessionID = null;
+    localStorage.removeItem('sessionID');
+  }
+  loadClockStatus();
+}
+
+async function clockOut() {
+  if (!sessionID) return alert("No active session ID found, please reload or re-login.");
+  const note = document.getElementById('noteOut').value;
+  const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDateOut', 'customTimeOut');
+  await fetch('/api/clock/out', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      worker_id: currentWorker.worker_id,
+      project_id: currentProject,
+      note,
+      datetime_local,
+      timezone_offset,
+      session_id: sessionID
+    })
+  });
+  sessionID = null;
+  localStorage.removeItem('sessionID');
+  loadClockStatus();
+}
+
+function logout() {
+  currentWorker = null;
+  sessionID = null;
+  localStorage.removeItem('sessionID');
+  location.reload();
+}
+
+function showChangePassword() {
+  let html = `<form id="pwForm">
+    <div class="mb-2"><input class="form-control" type="password" id="oldPw" placeholder="Old Password"></div>
+    <div class="mb-2"><input class="form-control" type="password" id="newPw" placeholder="New Password"></div>
+    <button type="button" class="btn btn-primary" onclick="changePassword()">Change Password</button>
+    <button type="button" class="btn btn-link" onclick="loadClockStatus()">Back</button>
+    </form>`;
+  document.getElementById('clock-status').innerHTML = html;
+}
+
+async function changePassword() {
+  const oldPw = document.getElementById('oldPw').value;
+  const newPw = document.getElementById('newPw').value;
+  const res = await fetch('/api/worker/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ worker_id: currentWorker.worker_id, old_password: oldPw, new_password: newPw })
+  });
+  const data = await res.json();
+  if (data.success) {
+    alert("Password changed!");
+    loadClockStatus();
+  } else {
+    alert(data.message || "Password change failed.");
+  }
+}
