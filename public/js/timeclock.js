@@ -136,10 +136,14 @@ function updateDuration() {
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
   const s = Math.floor((diff % 60000) / 1000);
-  document.getElementById('clock-duration').textContent =
-    `Duration: ${h}h ${m}m ${s}s`;
+
+  const durationElem = document.getElementById('clock-duration');
+  if (!durationElem) return; // Prevent error if element does not exist
+
+  durationElem.textContent = `Duration: ${h}h ${m}m ${s}s`;
   setTimeout(updateDuration, 1000);
 }
+
 
 function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
   const dateVal = document.getElementById(dateFieldId).value;
