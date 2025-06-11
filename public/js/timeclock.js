@@ -151,7 +151,7 @@ function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
     dt = luxon.DateTime.now();
   }
   return {
-    datetime_local: dt.toISO(), // ISO string with offset!
+    datetime_local: dt.toFormat("yyyy-MM-dd'T'HH:mm"), // ISO string with offset!
     timezone_offset: dt.offset  // in minutes, e.g. -420 for PDT
   };
 }
