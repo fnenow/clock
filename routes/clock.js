@@ -33,9 +33,13 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // Truncate to minute (no seconds, no milliseconds)
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
+    // ---- CHANGE STARTS HERE ----
+    // Parse datetime_local as UTC then *minus* the offset to get the true UTC time
+    // Reason: If datetime_local is "2024-06-11T08:30" and offset is -420 (PDT, UTC-7), 
+    // then UTC = local + 7h = local - (-420 min)
+    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm", { zone: 'utc' }).set({ second: 0, millisecond: 0 });
     let dtUtc = dtLocal.minus({ minutes: timezone_offset }).set({ second: 0, millisecond: 0 });
+    // ---- CHANGE ENDS HERE ----
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -45,8 +49,8 @@ router.post('/in', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-        dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),  // Corrected UTC time
+        dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),// Original local time (as entered)
         timezone_offset,
         note,
         pay_rate,
@@ -76,8 +80,11 @@ router.post('/out', async (req, res) => {
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
 
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
+    // ---- CHANGE STARTS HERE ----
+    // Parse datetime_local as UTC, then minus the offset to get UTC
+    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm", { zone: 'utc' }).set({ second: 0, millisecond: 0 });
     let dtUtc = dtLocal.minus({ minutes: timezone_offset }).set({ second: 0, millisecond: 0 });
+    // ---- CHANGE ENDS HERE ----
 
     await pool.query(
       `INSERT INTO clock_entries 
