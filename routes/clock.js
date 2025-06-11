@@ -33,13 +33,11 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // ---- CHANGE STARTS HERE ----
-    // Parse datetime_local as UTC then *minus* the offset to get the true UTC time
-    // Reason: If datetime_local is "2024-06-11T08:30" and offset is -420 (PDT, UTC-7), 
-    // then UTC = local + 7h = local - (-420 min)
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm", { zone: 'utc' }).set({ second: 0, millisecond: 0 });
-    let dtUtc = dtLocal.minus({ minutes: timezone_offset }).set({ second: 0, millisecond: 0 });
-    // ---- CHANGE ENDS HERE ----
+    // ---- THIS BLOCK IS THE KEY CHANGE ----
+    // Parse datetime_local *without any zone* (just wall clock time)
+    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
+    // Subtract the offset (in minutes) to get UTC time
+    let dtUtc = dtLocal.minus({ minutes: timezone_offset });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -49,8 +47,8 @@ router.post('/in', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),  // Corrected UTC time
-        dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),// Original local time (as entered)
+        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),  // UTC time, calculated as local minus offset
+        dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),// User input
         timezone_offset,
         note,
         pay_rate,
@@ -80,11 +78,9 @@ router.post('/out', async (req, res) => {
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
 
-    // ---- CHANGE STARTS HERE ----
-    // Parse datetime_local as UTC, then minus the offset to get UTC
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm", { zone: 'utc' }).set({ second: 0, millisecond: 0 });
-    let dtUtc = dtLocal.minus({ minutes: timezone_offset }).set({ second: 0, millisecond: 0 });
-    // ---- CHANGE ENDS HERE ----
+    // ---- THIS BLOCK IS THE KEY CHANGE ----
+    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
+    let dtUtc = dtLocal.minus({ minutes: timezone_offset });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -127,7 +123,6 @@ router.get('/status/:worker_id', async (req, res) => {
 router.post('/force-out', async (req, res) => {
   const { worker_id, project_id, admin_name } = req.body;
   try {
-    // Find latest open "in" entry
     const { rows } = await pool.query(
       `SELECT * FROM clock_entries
        WHERE worker_id=$1 AND project_id=$2 AND action='in'
