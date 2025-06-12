@@ -9,12 +9,17 @@ if (localStorage.getItem('sessionID')) {
   sessionID = localStorage.getItem('sessionID');
 }
 
+// Use plain JS for date and time!
 function getCurrentDateAndTime() {
-  const now = luxon.DateTime.now();
+  const now = new Date();
+  const pad = n => n.toString().padStart(2, '0');
   return {
-    date: now.toFormat('yyyy-MM-dd'),
-    time: now.toFormat('HH:mm'),
-    offset: now.offset // in minutes
+    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+    // Only use Luxon for offset to avoid DST issues
+    offset: typeof luxon !== 'undefined'
+      ? luxon.DateTime.now().offset
+      : -now.getTimezoneOffset()
   };
 }
 
@@ -144,7 +149,7 @@ function updateDuration() {
   setTimeout(updateDuration, 1000);
 }
 
-
+// Plain JS version for datetime_local and offset
 function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
   const dateVal = document.getElementById(dateFieldId).value;
   const timeVal = document.getElementById(timeFieldId).value;
@@ -154,13 +159,15 @@ function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
   } else {
     // fallback: current time, truncated to minute
     const now = new Date();
-    datetime_local = now.toISOString().slice(0,16);
+    const pad = n => n.toString().padStart(2, '0');
+    datetime_local = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
   }
-  // Only use Luxon for timezone offset!
-  const timezone_offset = luxon.DateTime.now().offset;
+  // Only use Luxon for offset to handle DST if loaded, else fallback to JS
+  const timezone_offset = typeof luxon !== 'undefined'
+    ? luxon.DateTime.now().offset
+    : -new Date().getTimezoneOffset();
   return { datetime_local, timezone_offset };
 }
-
 
 async function clockIn() {
   const project_id = document.querySelector('input[name="project"]:checked')?.value;
