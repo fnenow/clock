@@ -203,7 +203,7 @@ async function clockOut() {
   const note = document.getElementById('noteOut').value;
   const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDateOut', 'customTimeOut');
     // --- Add this line below ---
-  console.log('clock in', datetime_local, timezone_offset);
+  console.log('clock out', datetime_local, timezone_offset);
   await fetch('/api/clock/out', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
