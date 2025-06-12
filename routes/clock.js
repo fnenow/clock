@@ -36,15 +36,24 @@ router.post('/in', async (req, res) => {
 
     // ---- THIS BLOCK IS THE KEY CHANGE ----
     // Parse datetime_local *without any zone* (just wall clock time)
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
+//old    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
     // Subtract the offset (in minutes) to get UTC time
-    let dtUtc = dtLocal.minus({ minutes: timezone_offset });
+//old    let dtUtc = dtLocal.minus({ minutes: timezone_offset });
     // Add this log to see parsed dates:
-    console.log('[CLOCK IN] Parsed:', {
-      dtLocal: dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-    });
+//old    console.log('[CLOCK IN] Parsed:', {
+//old      dtLocal: dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+//old      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+//old    });
+//new below. Prevent local time become utc time.
+    let naiveLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm", { zone: 'UTC' }).set({ second: 0, millisecond: 0 });
+    let dtUtc = naiveLocal.minus({ minutes: timezone_offset });
 
+    console.log('[CLOCK IN] Parsed:', {
+      naiveLocal: naiveLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+});
+
+//new end
     await pool.query(
       `INSERT INTO clock_entries 
         (worker_id, project_id, action, datetime_utc, datetime_local, timezone_offset, note, pay_rate, session_id)
