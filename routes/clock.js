@@ -1,4 +1,3 @@
-const { DateTime } = require('luxon');
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
@@ -34,14 +33,26 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // -- This is the only correct way for parsing naive local clock time sent from browser --
-    // Always treat user input as UTC, then manually apply offset logic.
-    // Example: "2025-06-12T15:19" + { zone: 'UTC' } means "15:19 wall time", not "15:19 UTC".
-    let naiveLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm", { zone: 'UTC' }).set({ second: 0, millisecond: 0 });
-    let dtUtc = naiveLocal.minus({ minutes: timezone_offset });
+    // -- Parse local time as "YYYY-MM-DDTHH:mm" with no zone, then compute UTC manually
+    // datetime_local is already a string like "2025-06-12T15:19"
+    // Convert to Date object as if in local time
+    const parts = datetime_local.split(/[-T:]/).map(Number);
+    // JS months are 0-based
+    const localDate = new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], 0, 0);
+
+    // Calculate UTC date by subtracting offset (offset is in minutes, e.g. -420)
+    const utcMillis = localDate.getTime() - timezone_offset * 60000;
+    const utcDate = new Date(utcMillis);
+
+    // Format YYYY-MM-DDTHH:mm (no zone info)
+    function toYMDHM(date) {
+      const pad = n => n.toString().padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
     console.log('[CLOCK IN] Parsed:', {
-      naiveLocal: naiveLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+      datetime_local: toYMDHM(localDate),
+      datetime_utc: toYMDHM(utcDate)
     });
 
     await pool.query(
@@ -52,8 +63,8 @@ router.post('/in', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),   // UTC (for math)
-        naiveLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }), // Wall time (local input)
+        toYMDHM(utcDate),
+        toYMDHM(localDate),
         timezone_offset,
         note,
         pay_rate,
@@ -85,12 +96,20 @@ router.post('/out', async (req, res) => {
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
 
-    // Parse wall clock time just like for clock in
-    let naiveLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm", { zone: 'UTC' }).set({ second: 0, millisecond: 0 });
-    let dtUtc = naiveLocal.minus({ minutes: timezone_offset });
+    // Repeat parsing logic for out time
+    const parts = datetime_local.split(/[-T:]/).map(Number);
+    const localDate = new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], 0, 0);
+    const utcMillis = localDate.getTime() - timezone_offset * 60000;
+    const utcDate = new Date(utcMillis);
+
+    function toYMDHM(date) {
+      const pad = n => n.toString().padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
     console.log('[CLOCK OUT] Parsed:', {
-      naiveLocal: naiveLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+      datetime_local: toYMDHM(localDate),
+      datetime_utc: toYMDHM(utcDate)
     });
 
     await pool.query(
@@ -101,8 +120,8 @@ router.post('/out', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-        naiveLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        toYMDHM(utcDate),
+        toYMDHM(localDate),
         timezone_offset,
         note,
         session_id
@@ -150,8 +169,15 @@ router.post('/force-out', async (req, res) => {
 
     const clockIn = rows[0];
     // Use current server UTC time, truncate to minute
-    const nowUtc = DateTime.utc().set({ second: 0, millisecond: 0 });
-    const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset }).set({ second: 0, millisecond: 0 });
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const nowUtc = new Date(now.getTime());
+    const nowLocal = new Date(nowUtc.getTime() + (clockIn.timezone_offset * 60000));
+
+    function toYMDHM(date) {
+      const pad = n => n.toString().padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
 
     await pool.query(
       `INSERT INTO clock_entries
@@ -161,8 +187,8 @@ router.post('/force-out', async (req, res) => {
       [
         worker_id,
         project_id,
-        nowUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-        nowLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        toYMDHM(nowUtc),
+        toYMDHM(nowLocal),
         clockIn.timezone_offset,
         'Admin forced clock out',
         admin_name,
