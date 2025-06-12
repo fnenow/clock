@@ -148,17 +148,19 @@ function updateDuration() {
 function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
   const dateVal = document.getElementById(dateFieldId).value;
   const timeVal = document.getElementById(timeFieldId).value;
-  let dt;
+  let datetime_local = '';
   if (dateVal && timeVal) {
-    dt = luxon.DateTime.fromISO(`${dateVal}T${timeVal}`);
+    datetime_local = `${dateVal}T${timeVal}`;
   } else {
-    dt = luxon.DateTime.now();
+    // fallback: current time, truncated to minute
+    const now = new Date();
+    datetime_local = now.toISOString().slice(0,16);
   }
-  return {
-    datetime_local: dt.toFormat("yyyy-MM-dd'T'HH:mm"), // ISO string with offset!
-    timezone_offset: dt.offset  // in minutes, e.g. -420 for PDT
-  };
+  // Only use Luxon for timezone offset!
+  const timezone_offset = luxon.DateTime.now().offset;
+  return { datetime_local, timezone_offset };
 }
+
 
 async function clockIn() {
   const project_id = document.querySelector('input[name="project"]:checked')?.value;
