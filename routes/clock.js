@@ -15,6 +15,8 @@ async function getPayRate(worker_id) {
 
 // CLOCK IN
 router.post('/in', async (req, res) => {
+    // ADD THIS LINE:
+  console.log('Backend /in received:', req.body);
   const { worker_id, project_id, note, datetime_local, timezone_offset } = req.body;
   try {
     // Prevent double clock-in
@@ -63,6 +65,8 @@ router.post('/in', async (req, res) => {
 
 // CLOCK OUT
 router.post('/out', async (req, res) => {
+    // ADD THIS LINE:
+  console.log('Backend /out received:', req.body);
   const { worker_id, project_id, note, datetime_local, timezone_offset, session_id } = req.body;
   try {
     if (!session_id) return res.status(400).json({ message: "Missing session_id" });
