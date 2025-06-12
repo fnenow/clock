@@ -16,6 +16,7 @@ async function getPayRate(worker_id) {
 // CLOCK IN
 router.post('/in', async (req, res) => {
   const { worker_id, project_id, note, datetime_local, timezone_offset } = req.body;
+  console.log('[CLOCK IN] Received:', { datetime_local, timezone_offset });
   try {
     // Prevent double clock-in
     const already = await pool.query(
@@ -38,6 +39,11 @@ router.post('/in', async (req, res) => {
     let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
     // Subtract the offset (in minutes) to get UTC time
     let dtUtc = dtLocal.minus({ minutes: timezone_offset });
+    // Add this log to see parsed dates:
+    console.log('[CLOCK IN] Parsed:', {
+      dtLocal: dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+    });
 
     await pool.query(
       `INSERT INTO clock_entries 
@@ -64,6 +70,7 @@ router.post('/in', async (req, res) => {
 // CLOCK OUT
 router.post('/out', async (req, res) => {
   const { worker_id, project_id, note, datetime_local, timezone_offset, session_id } = req.body;
+  console.log('[CLOCK OUT] Received:', { datetime_local, timezone_offset });
   try {
     if (!session_id) return res.status(400).json({ message: "Missing session_id" });
 
@@ -81,6 +88,11 @@ router.post('/out', async (req, res) => {
     // ---- THIS BLOCK IS THE KEY CHANGE ----
     let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
     let dtUtc = dtLocal.minus({ minutes: timezone_offset });
+        // Add this log to see parsed dates:
+    console.log('[CLOCK OUT] Parsed:', {
+      dtLocal: dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+    });
 
     await pool.query(
       `INSERT INTO clock_entries 
