@@ -174,6 +174,8 @@ async function clockIn() {
   if (!project_id) return alert("Please select a project.");
   const note = document.getElementById('note').value;
   const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDate', 'customTime');
+    // --- Add this line below ---
+  console.log('clock in', datetime_local, timezone_offset);
   const res = await fetch('/api/clock/in', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -200,6 +202,8 @@ async function clockOut() {
   if (!sessionID) return alert("No active session ID found, please reload or re-login.");
   const note = document.getElementById('noteOut').value;
   const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDateOut', 'customTimeOut');
+    // --- Add this line below ---
+  console.log('clock in', datetime_local, timezone_offset);
   await fetch('/api/clock/out', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
