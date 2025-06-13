@@ -30,13 +30,17 @@ async function getPayRate(worker_id) {
 }
 // GET /api/clock-entries
 router.get('/api/clock-entries', async (req, res) => {
-  try {
-    const q = await pool.query('SELECT * FROM clock_entries ORDER BY datetime_local ASC');
-    res.json(q.rows);
-  } catch (err) {
-    console.error('Error fetching clock entries:', err);
-    res.status(500).send('Server error');
-  }
+  const q = await pool.query(`
+    SELECT
+      ce.*,
+      w.name AS worker_name,
+      p.name AS project_name
+    FROM clock_entries ce
+    LEFT JOIN workers w ON ce.worker_id = w.worker_id
+    LEFT JOIN projects p ON ce.project_id = p.id
+    ORDER BY ce.datetime_local ASC
+  `);
+  res.json(q.rows);
 });
 
 // CLOCK IN
