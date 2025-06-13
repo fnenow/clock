@@ -1,4 +1,3 @@
-const { DateTime } = require('luxon');
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
@@ -13,10 +12,27 @@ async function getPayRate(worker_id) {
   return q.rows[0]?.rate || 0;
 }
 
+// Utility to pad numbers for formatting
+function pad(n) {
+  return n < 10 ? '0' + n : n;
+}
+
+// Utility to format JS Date as "YYYY-MM-DD HH:mm"
+function formatDateTime(date) {
+  return (
+    date.getFullYear() +
+    '-' + pad(date.getMonth() + 1) +
+    '-' + pad(date.getDate()) +
+    ' ' + pad(date.getHours()) +
+    ':' + pad(date.getMinutes())
+  );
+}
+
 // CLOCK IN
 router.post('/in', async (req, res) => {
   const { worker_id, project_id, note, datetime_local, timezone_offset } = req.body;
   console.log('[CLOCK IN] Received:', { datetime_local, timezone_offset });
+
   try {
     // Prevent double clock-in
     const already = await pool.query(
@@ -34,15 +50,25 @@ router.post('/in', async (req, res) => {
     const pay_rate = await getPayRate(worker_id);
     const session_id = uuidv4();
 
-    // ---- THIS BLOCK IS THE KEY CHANGE ----
-    // Parse datetime_local *without any zone* (just wall clock time)
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
-    // Subtract the offset (in minutes) to get UTC time
-    let dtUtc = dtLocal.minus({ minutes: timezone_offset });
-    // Add this log to see parsed dates:
+    // --- JS-Only Time Calculation ---
+    // 1. Parse "YYYY-MM-DDTHH:mm" as if it was local wall time (no offset)
+    let [datePart, timePart] = datetime_local.split('T');
+    let [year, month, day] = datePart.split('-').map(Number);
+    let [hour, minute] = timePart.split(':').map(Number);
+
+    // JS months are 0-based!
+    let dtLocal = new Date(year, month - 1, day, hour, minute);
+
+    // 2. To get UTC: subtract the offset (in minutes) from the local time
+    let dtUtc = new Date(dtLocal.getTime() - timezone_offset * 60000);
+
+    // For DB: format as "YYYY-MM-DD HH:mm"
+    let datetimeLocalStr = formatDateTime(dtLocal);
+    let datetimeUtcStr = formatDateTime(dtUtc);
+
     console.log('[CLOCK IN] Parsed:', {
-      dtLocal: dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+      dtLocal: datetimeLocalStr,
+      dtUtc: datetimeUtcStr
     });
 
     await pool.query(
@@ -53,8 +79,8 @@ router.post('/in', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),  // UTC time, calculated as local minus offset
-        dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),// User input
+        datetimeUtcStr, // UTC
+        datetimeLocalStr, // Wall time
         timezone_offset,
         note,
         pay_rate,
@@ -63,6 +89,7 @@ router.post('/in', async (req, res) => {
     );
     res.json({ success: true, session_id });
   } catch (e) {
+    console.error('[CLOCK IN ERROR]', e);
     res.status(500).json({ message: e.message });
   }
 });
@@ -71,6 +98,7 @@ router.post('/in', async (req, res) => {
 router.post('/out', async (req, res) => {
   const { worker_id, project_id, note, datetime_local, timezone_offset, session_id } = req.body;
   console.log('[CLOCK OUT] Received:', { datetime_local, timezone_offset });
+
   try {
     if (!session_id) return res.status(400).json({ message: "Missing session_id" });
 
@@ -85,13 +113,20 @@ router.post('/out', async (req, res) => {
     );
     if (!rows.length) return res.status(400).json({ message: "No matching open clock-in session found" });
 
-    // ---- THIS BLOCK IS THE KEY CHANGE ----
-    let dtLocal = DateTime.fromFormat(datetime_local, "yyyy-MM-dd'T'HH:mm").set({ second: 0, millisecond: 0 });
-    let dtUtc = dtLocal.minus({ minutes: timezone_offset });
-        // Add this log to see parsed dates:
+    // --- JS-Only Time Calculation (same as clock-in) ---
+    let [datePart, timePart] = datetime_local.split('T');
+    let [year, month, day] = datePart.split('-').map(Number);
+    let [hour, minute] = timePart.split(':').map(Number);
+
+    let dtLocal = new Date(year, month - 1, day, hour, minute);
+    let dtUtc = new Date(dtLocal.getTime() - timezone_offset * 60000);
+
+    let datetimeLocalStr = formatDateTime(dtLocal);
+    let datetimeUtcStr = formatDateTime(dtUtc);
+
     console.log('[CLOCK OUT] Parsed:', {
-      dtLocal: dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-      dtUtc: dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+      dtLocal: datetimeLocalStr,
+      dtUtc: datetimeUtcStr
     });
 
     await pool.query(
@@ -102,8 +137,8 @@ router.post('/out', async (req, res) => {
       [
         worker_id,
         project_id,
-        dtUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-        dtLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        datetimeUtcStr, // UTC
+        datetimeLocalStr, // Wall time
         timezone_offset,
         note,
         session_id
@@ -111,6 +146,7 @@ router.post('/out', async (req, res) => {
     );
     res.json({ success: true });
   } catch (e) {
+    console.error('[CLOCK OUT ERROR]', e);
     res.status(500).json({ message: e.message });
   }
 });
@@ -149,9 +185,12 @@ router.post('/force-out', async (req, res) => {
     if (!rows.length) return res.status(400).json({ message: "No active clock-in session found" });
 
     const clockIn = rows[0];
-    // Use current server UTC time, truncate to minute
-    const nowUtc = DateTime.utc().set({ second: 0, millisecond: 0 });
-    const nowLocal = nowUtc.plus({ minutes: clockIn.timezone_offset }).set({ second: 0, millisecond: 0 });
+    // Use current server UTC time for UTC, and local wall time for local
+    const nowUtc = new Date();
+    const nowLocal = new Date(nowUtc.getTime() + clockIn.timezone_offset * 60000);
+
+    let datetimeLocalStr = formatDateTime(nowLocal);
+    let datetimeUtcStr = formatDateTime(nowUtc);
 
     await pool.query(
       `INSERT INTO clock_entries
@@ -161,8 +200,8 @@ router.post('/force-out', async (req, res) => {
       [
         worker_id,
         project_id,
-        nowUtc.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
-        nowLocal.toISO({ suppressSeconds: true, suppressMilliseconds: true }),
+        datetimeUtcStr,
+        datetimeLocalStr,
         clockIn.timezone_offset,
         'Admin forced clock out',
         admin_name,
@@ -171,6 +210,7 @@ router.post('/force-out', async (req, res) => {
     );
     res.json({ success: true });
   } catch (e) {
+    console.error('[ADMIN FORCE CLOCK OUT ERROR]', e);
     res.status(500).json({ message: e.message });
   }
 });
