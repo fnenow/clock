@@ -1,4 +1,4 @@
-// Helper: format duration in h m
+// Format duration as "xh ym"
 function formatDuration(start, end) {
   if (!start) return '';
   const startDate = new Date(start);
@@ -10,12 +10,12 @@ function formatDuration(start, end) {
   return `${h}h ${m}m`;
 }
 
-// Helper: get unique values for dropdowns
+// Get unique values for dropdowns
 function getUnique(entries, field) {
   return Array.from(new Set(entries.map(e => e[field]))).filter(Boolean);
 }
 
-// Pair in/out entries into sessions
+// Improved session pairing: handles multiple sessions per worker/project
 function getSessions(entries) {
   // Sort all entries by worker, project, datetime
   entries.sort((a, b) => {
@@ -25,34 +25,34 @@ function getSessions(entries) {
   });
 
   const sessions = [];
-  const pending = {};
+  const pending = {}; // key: worker|project, value: array of open "in"s
 
   entries.forEach(entry => {
     const key = `${entry.worker_name}|${entry.project_name}`;
     if (entry.action === 'in') {
-      if (!pending[key]) {
-        pending[key] = { 
-          worker_name: entry.worker_name, 
-          project_name: entry.project_name, 
-          clock_in: entry.datetime_local, 
-          note: entry.note,
-          pay_rate: entry.pay_rate,
-          id_in: entry.id, // for reference
-          clock_out: null, 
-          id_out: null
-        };
-      }
-    } else if (entry.action === 'out' && pending[key] && !pending[key].clock_out) {
-      pending[key].clock_out = entry.datetime_local;
-      pending[key].id_out = entry.id;
-      sessions.push(pending[key]);
-      delete pending[key];
+      if (!pending[key]) pending[key] = [];
+      pending[key].push({
+        worker_name: entry.worker_name,
+        project_name: entry.project_name,
+        clock_in: entry.datetime_local,
+        note: entry.note,
+        pay_rate: entry.pay_rate,
+        id_in: entry.id,
+        clock_out: null,
+        id_out: null
+      });
+    } else if (entry.action === 'out' && pending[key] && pending[key].length) {
+      // Match to the earliest unmatched clock-in
+      const session = pending[key].shift();
+      session.clock_out = entry.datetime_local;
+      session.id_out = entry.id;
+      sessions.push(session);
     }
   });
 
-  // Any open (not clocked out) sessions left in pending
+  // Any remaining unmatched "in"s are open sessions
   for (const key in pending) {
-    sessions.push(pending[key]);
+    sessions.push(...pending[key]);
   }
 
   return sessions;
@@ -76,12 +76,14 @@ async function loadData() {
 function populateFilters() {
   const workerSel = document.getElementById('filterWorker');
   const projectSel = document.getElementById('filterProject');
+  if (!workerSel || !projectSel) return;
   workerSel.innerHTML = '<option value="">All</option>' + getUnique(allEntries, 'worker_name').map(w => `<option>${w}</option>`).join('');
   projectSel.innerHTML = '<option value="">All</option>' + getUnique(allEntries, 'project_name').map(p => `<option>${p}</option>`).join('');
 }
 
 function renderSessions() {
   const tbody = document.querySelector('#sessionTable tbody');
+  if (!tbody) return;
   let filtered = allSessions.filter(s => {
     let ok = true;
     if (filterWorker && s.worker_name !== filterWorker) ok = false;
@@ -109,33 +111,38 @@ function renderSessions() {
 }
 
 // Event handlers
-document.getElementById('filterWorker').addEventListener('change', e => {
+const workerSel = document.getElementById('filterWorker');
+if (workerSel) workerSel.addEventListener('change', e => {
   filterWorker = e.target.value;
   renderSessions();
 });
-document.getElementById('filterProject').addEventListener('change', e => {
+const projectSel = document.getElementById('filterProject');
+if (projectSel) projectSel.addEventListener('change', e => {
   filterProject = e.target.value;
   renderSessions();
 });
-document.getElementById('tabOpen').addEventListener('click', () => {
+const tabOpen = document.getElementById('tabOpen');
+if (tabOpen) tabOpen.addEventListener('click', () => {
   currentTab = 'open';
   updateTabs();
   renderSessions();
 });
-document.getElementById('tabClosed').addEventListener('click', () => {
+const tabClosed = document.getElementById('tabClosed');
+if (tabClosed) tabClosed.addEventListener('click', () => {
   currentTab = 'closed';
   updateTabs();
   renderSessions();
 });
-document.getElementById('tabAll').addEventListener('click', () => {
+const tabAll = document.getElementById('tabAll');
+if (tabAll) tabAll.addEventListener('click', () => {
   currentTab = 'all';
   updateTabs();
   renderSessions();
 });
 function updateTabs() {
-  document.getElementById('tabOpen').classList.toggle('selected', currentTab === 'open');
-  document.getElementById('tabClosed').classList.toggle('selected', currentTab === 'closed');
-  document.getElementById('tabAll').classList.toggle('selected', currentTab === 'all');
+  if (tabOpen) tabOpen.classList.toggle('selected', currentTab === 'open');
+  if (tabClosed) tabClosed.classList.toggle('selected', currentTab === 'closed');
+  if (tabAll) tabAll.classList.toggle('selected', currentTab === 'all');
 }
 
 // Force clock out: updates the backend and reloads data
