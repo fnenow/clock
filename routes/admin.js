@@ -30,7 +30,9 @@ router.get('/clocked-out', async (req, res) => {
       cin.pay_rate,
       cout.admin_forced_by,
       cin.session_id,
-      EXTRACT(EPOCH FROM (cout.datetime_utc - cin.datetime_utc)) AS duration_sec
+      EXTRACT(EPOCH FROM (
+        CAST(cout.datetime_utc AS timestamp) - CAST(cin.datetime_utc AS timestamp)
+      )) AS duration_sec
     FROM clock_entries cin
     JOIN clock_entries cout
       ON cin.worker_id = cout.worker_id
