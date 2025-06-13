@@ -1,115 +1,155 @@
-let adminSession = null;
+// Helper: format duration in h m
+function formatDuration(start, end) {
+  if (!start) return '';
+  const startDate = new Date(start);
+  const endDate = end ? new Date(end) : new Date();
+  const diffMs = endDate - startDate;
+  if (diffMs < 0) return '';
+  const h = Math.floor(diffMs / (1000 * 60 * 60));
+  const m = Math.floor((diffMs / (1000 * 60)) % 60);
+  return `${h}h ${m}m`;
+}
 
-async function adminLogin() {
-  const username = document.getElementById('adminUser').value;
-  const password = document.getElementById('adminPass').value;
-  const res = await fetch('/api/admin/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
+// Helper: get unique values for dropdowns
+function getUnique(entries, field) {
+  return Array.from(new Set(entries.map(e => e[field]))).filter(Boolean);
+}
+
+// Pair in/out entries into sessions
+function getSessions(entries) {
+  // Sort all entries by worker, project, datetime
+  entries.sort((a, b) => {
+    if (a.worker_name !== b.worker_name) return a.worker_name.localeCompare(b.worker_name);
+    if (a.project_name !== b.project_name) return a.project_name.localeCompare(b.project_name);
+    return new Date(a.datetime_local) - new Date(b.datetime_local);
   });
-  const data = await res.json();
-  if (data.success) {
-    adminSession = data.username;
-    document.getElementById('admin-login-section').style.display = 'none';
-    document.getElementById('dashboard-section').style.display = '';
-    showClockedIn();
-  } else {
-    alert(data.message || "Login failed");
-  }
-}
 
-async function showClockedIn() {
-  const res = await fetch('/api/admin/clocking-in');
-  const rows = await res.json();
-  renderAdminTable(rows, false);
-}
+  const sessions = [];
+  const pending = {};
 
-async function showClockedOut() {
-  const res = await fetch('/api/admin/clocked-out');
-  const rows = await res.json();
-  renderAdminTable(rows, true);
-}
-
-function renderAdminTable(rows, isOut) {
-  let html = `<table class="table table-bordered table-sm">
-    <thead><tr>
-      <th>Worker</th><th>Project</th>
-      ${isOut ? '<th>Clock In</th><th>Clock Out</th><th>Duration</th>' : '<th>Time In</th><th>Live Duration</th>'}
-      <th>Clock In Note</th>${isOut ? '<th>Clock Out Note</th>' : ''}
-      <th>Pay Rate</th>${!isOut ? '<th>Force Clock Out</th>' : '<th>Admin Forced By</th>'}
-    </tr></thead><tbody>`;
-
-  for (let r of rows) {
-    if (isOut) {
-      // Clocked out: show both times, duration, notes, admin_forced_by
-      let duration = '';
-      if (r.duration_sec !== undefined && r.duration_sec !== null) {
-        const sec = Math.floor(r.duration_sec % 60);
-        const min = Math.floor((r.duration_sec / 60) % 60);
-        const hr = Math.floor(r.duration_sec / 3600);
-        duration = `${hr}h ${min}m ${sec}s`;
+  entries.forEach(entry => {
+    const key = `${entry.worker_name}|${entry.project_name}`;
+    if (entry.action === 'in') {
+      if (!pending[key]) {
+        pending[key] = { 
+          worker_name: entry.worker_name, 
+          project_name: entry.project_name, 
+          clock_in: entry.datetime_local, 
+          note: entry.note,
+          pay_rate: entry.pay_rate,
+          id_in: entry.id, // for reference
+          clock_out: null, 
+          id_out: null
+        };
       }
-      html += `<tr>
-        <td>${r.worker_name}</td>
-        <td>${r.project_name}</td>
-        <td>${r.clock_in_time ? new Date(r.clock_in_time).toLocaleString() : ''}</td>
-        <td>${r.clock_out_time ? new Date(r.clock_out_time).toLocaleString() : ''}</td>
-        <td>${duration}</td>
-        <td>${r.clock_in_note || ''}</td>
-        <td>${r.clock_out_note || ''}</td>
-        <td>${r.pay_rate || ''}</td>
-        <td>${r.admin_forced_by || ''}</td>
-      </tr>`;
-    } else {
-      // Clocked in: show live duration, force-out
-      const spanId = `dur-${r.worker_id}-${r.project_id}`;
-      html += `<tr>
-        <td>${r.worker_name}</td>
-        <td>${r.project_name}</td>
-        <td>${r.datetime_local ? new Date(r.datetime_local).toLocaleString() : ''}</td>
-        <td><span id="${spanId}"></span></td>
-        <td>${r.note || ''}</td>
-        <td>${r.pay_rate || ''}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="forceOut('${r.worker_id}','${r.project_id}')">Force Out</button></td>
-      </tr>`;
-      setTimeout(() => startDurationTimer(spanId, r.datetime_local), 100);
+    } else if (entry.action === 'out' && pending[key] && !pending[key].clock_out) {
+      pending[key].clock_out = entry.datetime_local;
+      pending[key].id_out = entry.id;
+      sessions.push(pending[key]);
+      delete pending[key];
     }
-  }
-  html += `</tbody></table>`;
-  document.getElementById('admin-table').innerHTML = html;
-}
-
-
-// Live duration timer for admin dashboard
-function startDurationTimer(spanId, startTime) {
-  const el = document.getElementById(spanId);
-  if (!el) return;
-  const clockIn = new Date(startTime);
-  function update() {
-    const now = new Date();
-    const diff = now - clockIn;
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    el.textContent = `${h}h ${m}m ${s}s`;
-    setTimeout(update, 1000);
-  }
-  update();
-}
-
-async function forceOut(worker_id, project_id) {
-  const admin_name = adminSession;
-  if (!confirm("Force clock out this worker?")) return;
-  await fetch('/api/clock/force-out', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ worker_id, project_id, admin_name })
   });
-  showClockedIn();
+
+  // Any open (not clocked out) sessions left in pending
+  for (const key in pending) {
+    sessions.push(pending[key]);
+  }
+
+  return sessions;
 }
 
-function logout() {
-  adminSession = null;
-  location.reload();
+let allEntries = [];
+let allSessions = [];
+let filterWorker = '';
+let filterProject = '';
+let currentTab = 'open'; // 'open', 'closed', 'all'
+
+// Fetch entries and initialize
+async function loadData() {
+  const res = await fetch('/api/clock-entries');
+  allEntries = await res.json();
+  allSessions = getSessions(allEntries);
+  populateFilters();
+  renderSessions();
 }
+
+function populateFilters() {
+  const workerSel = document.getElementById('filterWorker');
+  const projectSel = document.getElementById('filterProject');
+  workerSel.innerHTML = '<option value="">All</option>' + getUnique(allEntries, 'worker_name').map(w => `<option>${w}</option>`).join('');
+  projectSel.innerHTML = '<option value="">All</option>' + getUnique(allEntries, 'project_name').map(p => `<option>${p}</option>`).join('');
+}
+
+function renderSessions() {
+  const tbody = document.querySelector('#sessionTable tbody');
+  let filtered = allSessions.filter(s => {
+    let ok = true;
+    if (filterWorker && s.worker_name !== filterWorker) ok = false;
+    if (filterProject && s.project_name !== filterProject) ok = false;
+    return ok;
+  });
+
+  if (currentTab === 'open') filtered = filtered.filter(s => !s.clock_out);
+  else if (currentTab === 'closed') filtered = filtered.filter(s => !!s.clock_out);
+  // 'all' shows everything
+
+  tbody.innerHTML = filtered.map(s => `
+    <tr>
+      <td>${s.worker_name}</td>
+      <td>${s.project_name}</td>
+      <td>${s.clock_in ? new Date(s.clock_in).toLocaleString() : ''}</td>
+      <td>${formatDuration(s.clock_in, s.clock_out)}</td>
+      <td>${s.note || ''}</td>
+      <td>${s.pay_rate ? `$${parseFloat(s.pay_rate).toFixed(2)}` : ''}</td>
+      <td>
+        ${!s.clock_out ? `<button onclick="forceClockOut('${s.id_in}')">Force Clock-Out</button>` : ''}
+      </td>
+    </tr>
+  `).join('');
+}
+
+// Event handlers
+document.getElementById('filterWorker').addEventListener('change', e => {
+  filterWorker = e.target.value;
+  renderSessions();
+});
+document.getElementById('filterProject').addEventListener('change', e => {
+  filterProject = e.target.value;
+  renderSessions();
+});
+document.getElementById('tabOpen').addEventListener('click', () => {
+  currentTab = 'open';
+  updateTabs();
+  renderSessions();
+});
+document.getElementById('tabClosed').addEventListener('click', () => {
+  currentTab = 'closed';
+  updateTabs();
+  renderSessions();
+});
+document.getElementById('tabAll').addEventListener('click', () => {
+  currentTab = 'all';
+  updateTabs();
+  renderSessions();
+});
+function updateTabs() {
+  document.getElementById('tabOpen').classList.toggle('selected', currentTab === 'open');
+  document.getElementById('tabClosed').classList.toggle('selected', currentTab === 'closed');
+  document.getElementById('tabAll').classList.toggle('selected', currentTab === 'all');
+}
+
+// Force clock out: updates the backend and reloads data
+async function forceClockOut(id_in) {
+  if (!confirm("Force clock out now?")) return;
+  const res = await fetch(`/api/clock-entries/${id_in}/force-clock-out`, { method: 'POST' });
+  if (res.ok) {
+    await loadData();
+  } else {
+    alert("Failed to force clock out");
+  }
+}
+
+window.forceClockOut = forceClockOut; // expose to global
+
+// Initial load
+loadData();
