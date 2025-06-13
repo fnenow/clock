@@ -28,6 +28,16 @@ async function getPayRate(worker_id) {
   );
   return q.rows[0]?.rate || 0;
 }
+// GET /api/clock-entries
+router.get('/api/clock-entries', async (req, res) => {
+  try {
+    const q = await pool.query('SELECT * FROM clock_entries ORDER BY datetime_local ASC');
+    res.json(q.rows);
+  } catch (err) {
+    console.error('Error fetching clock entries:', err);
+    res.status(500).send('Server error');
+  }
+});
 
 // CLOCK IN
 router.post('/in', async (req, res) => {
