@@ -30,7 +30,7 @@ app.use(session({
 
 app.use('/api/clock', clockRoutes);
 app.use('/api/worker', workerRoutes);
-app.use('/api/project', projectRouter);
+app.use('/api/projects', projectRouter);
 app.use('/api/payrate', payrateRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payroll', payrollRoutes);
