@@ -262,4 +262,42 @@ router.post('/force-out', async (req, res) => {
   }
 });
 
+// PATCH /api/clock-entries/:id
+router.patch('/api/clock-entries/:id', async (req, res) => {
+  const { id } = req.params;
+  const { project_name, datetime_local, note } = req.body;
+  try {
+    if (project_name) {
+      // Update project by name (lookup ID)
+      const pq = await pool.query('SELECT id FROM projects WHERE name = $1', [project_name]);
+      if (!pq.rows.length) return res.status(400).json({ message: 'Project not found' });
+      await pool.query('UPDATE clock_entries SET project_id = $1 WHERE id = $2', [pq.rows[0].id, id]);
+    }
+    if (datetime_local) {
+      // Fetch timezone_offset
+      const q = await pool.query('SELECT timezone_offset FROM clock_entries WHERE id = $1', [id]);
+      if (!q.rows.length) return res.status(404).json({ message: 'Entry not found' });
+      const { timezone_offset } = q.rows[0];
+      // Parse local datetime and update utc
+      const [datePart, timePart] = datetime_local.split(' ');
+      const [year, month, day] = datePart.split('-').map(Number);
+      const [hour, minute] = timePart.split(':').map(Number);
+      const dtMillis = Date.UTC(year, month - 1, day, hour, minute);
+      const dtUtcMillis = dtMillis - timezone_offset * 60000;
+      const dtUtc = new Date(dtUtcMillis);
+      const pad = n => n < 10 ? '0' + n : n;
+      const datetime_utc = `${dtUtc.getFullYear()}-${pad(dtUtc.getMonth() + 1)}-${pad(dtUtc.getDate())} ${pad(dtUtc.getHours())}:${pad(dtUtc.getMinutes())}`;
+      await pool.query('UPDATE clock_entries SET datetime_local = $1, datetime_utc = $2 WHERE id = $3', [datetime_local, datetime_utc, id]);
+    }
+    if (note !== undefined) {
+      await pool.query('UPDATE clock_entries SET note = $1 WHERE id = $2', [note, id]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('PATCH /api/clock-entries/:id', err);
+    res.status(500).json({ message: 'Error updating entry' });
+  }
+});
+
+
 module.exports = router;
