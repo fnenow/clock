@@ -12,6 +12,8 @@
     button { padding: 2px 8px; }
     .tab { padding: 8px 16px; border: 1px solid #ccc; cursor: pointer; background: #f8f8f8; }
     .tab.selected { background: #e0e0ff; font-weight: bold; }
+    .overtime { background: #ffe0e0 !important; }
+    .editable:focus { background: #fffbe6; outline: 1px solid #dab; }
   </style>
 </head>
 <body>
@@ -21,20 +23,27 @@
     <select id="filterWorker"></select>
     Project:
     <select id="filterProject"></select>
+    Date:
+    <input type="date" id="filterStartDate"> to
+    <input type="date" id="filterEndDate">
     <span style="margin-left:20px;">
       <span class="tab selected" id="tabOpen">Open Sessions</span>
       <span class="tab" id="tabClosed">Closed Sessions</span>
       <span class="tab" id="tabAll">All Sessions</span>
     </span>
+    <label style="margin-left:20px;"><input type="checkbox" id="highlightOvertime"> Highlight Overtime Days</label>
+    <button id="exportCSV" style="float:right;">Export CSV</button>
   </div>
   <table id="sessionTable">
     <thead>
       <tr>
         <th>Worker</th>
         <th>Project</th>
-        <th>Clock-in</th>
+        <th>Clock-in (local)</th>
+        <th>Clock-out (local)</th>
         <th>Duration</th>
-        <th>Note</th>
+        <th>Note In</th>
+        <th>Note Out</th>
         <th>Pay Rate</th>
         <th>Action</th>
       </tr>
