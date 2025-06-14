@@ -75,4 +75,40 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Update worker info (except password)
+router.put('/:worker_id', async (req, res) => {
+  const { worker_id } = req.params;
+  const { name, phone, start_date, end_date, note, inactive } = req.body;
+  await pool.query(
+    `UPDATE workers SET name=$1, phone=$2, start_date=$3, end_date=$4, note=$5, inactive=$6 WHERE worker_id=$7`,
+    [name, phone, start_date, end_date, note, !!inactive, worker_id]
+  );
+  res.json({ success: true });
+});
+
+router.delete('/:worker_id', async (req, res) => {
+  const { worker_id } = req.params;
+  // Optionally: Check if worker has clock entries before deleting
+  await pool.query('DELETE FROM workers WHERE worker_id=$1', [worker_id]);
+  res.json({ success: true });
+});
+
+// Assign worker to project
+router.post('/:worker_id/assign', async (req, res) => {
+  const { worker_id } = req.params;
+  const { project_id } = req.body;
+  await pool.query(
+    'INSERT INTO project_workers (project_id, worker_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    [project_id, worker_id]
+  );
+  res.json({ success: true });
+});
+// Unassign
+router.post('/:worker_id/unassign', async (req, res) => {
+  const { worker_id } = req.params;
+  const { project_id } = req.body;
+  await pool.query('DELETE FROM project_workers WHERE project_id=$1 AND worker_id=$2', [project_id, worker_id]);
+  res.json({ success: true });
+});
+
 module.exports = router;
