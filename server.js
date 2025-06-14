@@ -9,7 +9,7 @@ const pool = require('./db');
 
 const clockRoutes = require('./routes/clock');
 const workerRoutes = require('./routes/worker');
-const projectRoutes = require('./routes/project');
+const projectRouter = require('./routes/project');
 const payrateRoutes = require('./routes/payrate');
 const adminRoutes = require('./routes/admin');
 const payrollRoutes = require('./routes/payroll');
@@ -30,7 +30,7 @@ app.use(session({
 
 app.use('/api/clock', clockRoutes);
 app.use('/api/worker', workerRoutes);
-app.use('/api/project', projectRoutes);
+app.use('/api/project', projectRouter);
 app.use('/api/payrate', payrateRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payroll', payrollRoutes);
