@@ -172,7 +172,7 @@ router.post('/api/clock-entries/:id/force-clock-out', async (req, res) => {
     const datetime_utc = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
     // 2. Calculate datetime_local by subtracting timezone_offset (in minutes) from UTC
-    const localTime = new Date(now.getTime() - (timezone_offset * 60 * 1000));
+    const localTime = new Date(now.getTime() + (timezone_offset * 60 * 1000));
     const datetime_local = `${localTime.getFullYear()}-${pad(localTime.getMonth() + 1)}-${pad(localTime.getDate())} ${pad(localTime.getHours())}:${pad(localTime.getMinutes())}`;
 
     await pool.query(`
