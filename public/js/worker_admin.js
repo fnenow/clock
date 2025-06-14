@@ -65,4 +65,52 @@ async function deleteWorker(worker_id) {
   loadWorkers();
 }
 
+async function showWorkerForm(edit, worker) {
+  let projectList = await fetch('/api/projects').then(r => r.json());
+  let assignedProjects = [];
+  if (edit) {
+    assignedProjects = await fetch(`/api/worker/projects/${worker.worker_id}`).then(r => r.json());
+    assignedProjects = assignedProjects.map(p => p.id);
+  }
+  // Build checkbox list
+  let projectCheckboxes = projectList.map(p => `
+    <div>
+      <input type="checkbox" id="prj_${p.id}" value="${p.id}" ${assignedProjects.includes(p.id) ? 'checked' : ''}>
+      <label for="prj_${p.id}">${p.name}</label>
+    </div>
+  `).join('');
+  document.getElementById('worker-form').innerHTML = `
+    <form id="workerForm" class="mt-3">
+      <input class="form-control mb-2" id="wName" placeholder="Name" value="${worker?.name || ''}" required>
+      <input class="form-control mb-2" id="wPhone" placeholder="Phone" value="${worker?.phone || ''}" required>
+      <input class="form-control mb-2" id="wStart" type="date" value="${worker?.start_date?.substring(0,10) || ''}" required>
+      <input class="form-control mb-2" id="wEnd" type="date" value="${worker?.end_date?.substring(0,10) || ''}">
+      <input class="form-control mb-2" id="wNote" placeholder="Note" value="${worker?.note || ''}">
+      <input class="form-control mb-2" id="wWorkerId" placeholder="Worker ID (auto last 5 digits, change if needed)" value="${worker?.worker_id || ''}">
+      <div class="form-check mb-2">
+        <input type="checkbox" id="wInactive" class="form-check-input" ${worker?.inactive ? 'checked' : ''}>
+        <label for="wInactive" class="form-check-label">Inactive</label>
+      </div>
+      <div class="mb-2"><b>Assign Projects:</b>${projectCheckboxes}</div>
+      <button type="button" class="btn btn-primary" onclick="${edit ? `updateWorker('${worker.worker_id}')` : 'addWorker()'}">${edit ? 'Update' : 'Add'}</button>
+      <button type="button" class="btn btn-link" onclick="loadWorkers()">Cancel</button>
+    </form>
+  `;
+}
+
+async function assignProjects(worker_id) {
+  let checkboxes = document.querySelectorAll('[id^="prj_"]');
+  for (let cb of checkboxes) {
+    let project_id = cb.value;
+    let checked = cb.checked;
+    // Assign/unassign via API as needed
+    await fetch(`/api/worker/${worker_id}/${checked ? 'assign' : 'unassign'}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id })
+    });
+  }
+}
+
+
+
 window.onload = loadWorkers;
