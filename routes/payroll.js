@@ -14,13 +14,11 @@ async function getActivePayRate(worker_id, date) {
   return q.rows[0]?.rate || 0;
 }
 
-// Parse 'YYYY-MM-DD HH:mm' or 'YYYY-MM-DDTHH:mm' into JS Date
 function parseDateTime(str) {
   if (!str) return null;
   let s = str.trim().replace(' ', 'T');
   let d = new Date(s);
   if (!isNaN(d.getTime())) return d;
-  // Try manual split if needed
   let parts = s.split('T');
   if (parts.length === 2) {
     let [y, m, day] = parts[0].split('-');
@@ -30,8 +28,6 @@ function parseDateTime(str) {
   }
   return null;
 }
-
-// Compute ISO week string for a given JS Date, e.g. '2025-W24'
 function getISOWeekKey(date) {
   const tmp = new Date(date.valueOf());
   tmp.setHours(0, 0, 0, 0);
@@ -40,8 +36,6 @@ function getISOWeekKey(date) {
   const weekNo = 1 + Math.round(((tmp - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
   return `${tmp.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
-
-// Group by: worker_id, project_id, day (YYYY-MM-DD)
 function groupByWorkerProjectDate(sessions) {
   let groups = {};
   sessions.forEach(row => {
@@ -55,19 +49,17 @@ function groupByWorkerProjectDate(sessions) {
   return groups;
 }
 
-// Helper: Split daily OT for each workday (native JS)
+// Split daily OT for each workday (native JS)
 async function splitDailyOvertime(sessions) {
   let result = [];
   let byDay = groupByWorkerProjectDate(sessions);
   for (let key in byDay) {
     let dayRows = byDay[key];
-    // Sort by in/out time
     dayRows.sort((a, b) => {
       let aTime = a.datetime_local || a.datetime_utc || '';
       let bTime = b.datetime_local || b.datetime_utc || '';
       return aTime.localeCompare(bTime);
     });
-    // Pair ins/outs
     let pairs = [];
     let stack = [];
     for (let row of dayRows) {
@@ -77,7 +69,6 @@ async function splitDailyOvertime(sessions) {
         pairs.push({ in: inRow, out: row });
       }
     }
-    // For each pair, calculate duration in hours
     let payPairs = [];
     for (let p of pairs) {
       let inStr = p.in.datetime_local || p.in.datetime_utc;
@@ -93,7 +84,6 @@ async function splitDailyOvertime(sessions) {
       if (hours < 0) hours = 0;
       payPairs.push({ ...p, hours, inTime, outTime });
     }
-    // Split into regular/OT if needed
     let regLeft = 8;
     for (let pp of payPairs) {
       let regH = 0, otH = 0;
@@ -114,14 +104,14 @@ async function splitDailyOvertime(sessions) {
       if (!pay_rate || Number(pay_rate) === 0) {
         pay_rate = await getActivePayRate(pp.in.worker_id, dateStr ? dateStr.slice(0, 10) : '');
       }
-      // Regular portion
+      // Only Daily or Weekly for ot_type (no 'regular')
       if (regH > 0) {
         result.push({
           ...pp.in,
           datetime_out_local: pp.out.datetime_local,
-          regular_time: regH,
+          regular_time: Number(regH.toFixed(2)),
           overtime: 0,
-          ot_type: 'regular',
+          ot_type: '', // Empty, not 'regular'
           pay_rate,
           pay_amount: Number((regH * pay_rate).toFixed(2)),
           billed: pp.in.billed,
@@ -130,15 +120,14 @@ async function splitDailyOvertime(sessions) {
           paid_date: pp.in.paid_date,
         });
       }
-      // Daily OT portion
       if (otH > 0) {
         result.push({
           ...pp.in,
           datetime_out_local: pp.out.datetime_local,
           regular_time: 0,
-          overtime: otH,
-          ot_type: 'daily',
-          pay_rate: (pay_rate * 1.5),
+          overtime: Number(otH.toFixed(2)),
+          ot_type: 'Daily',
+          pay_rate: Number((pay_rate * 1.5).toFixed(2)),
           pay_amount: Number((otH * pay_rate * 1.5).toFixed(2)),
           billed: pp.in.billed,
           billed_date: pp.in.billed_date,
@@ -151,7 +140,7 @@ async function splitDailyOvertime(sessions) {
   return result;
 }
 
-// Helper: Split weekly OT (native JS)
+// Split weekly OT (native JS)
 function splitWeeklyOvertime(dailyRows) {
   let byWeek = {};
   dailyRows.forEach(row => {
@@ -170,13 +159,13 @@ function splitWeeklyOvertime(dailyRows) {
   for (let key in byWeek) {
     let rows = byWeek[key];
     let totalReg = 0;
-    rows.forEach(r => { if (r.ot_type === 'regular') totalReg += Number(r.regular_time || 0); });
+    rows.forEach(r => { if (!r.ot_type) totalReg += Number(r.regular_time || 0); }); // only rows with ot_type='' (regular)
     if (totalReg <= 40) {
       results = results.concat(rows);
     } else {
       let regLeft = 40;
       for (let r of rows) {
-        if (r.ot_type !== 'regular') {
+        if (r.ot_type) { // Only split regulars
           results.push(r);
           continue;
         }
@@ -184,15 +173,15 @@ function splitWeeklyOvertime(dailyRows) {
         let pay_rate = r.pay_rate;
         if (regLeft > 0) {
           if (hr <= regLeft) {
-            results.push(r);
+            results.push({ ...r, regular_time: Number(hr.toFixed(2)), ot_type: '' });
             regLeft -= hr;
           } else {
             if (regLeft > 0) {
               results.push({
                 ...r,
-                regular_time: regLeft,
+                regular_time: Number(regLeft.toFixed(2)),
                 overtime: 0,
-                ot_type: 'regular',
+                ot_type: '',
                 pay_rate,
                 pay_amount: Number((regLeft * pay_rate).toFixed(2))
               });
@@ -202,9 +191,9 @@ function splitWeeklyOvertime(dailyRows) {
               results.push({
                 ...r,
                 regular_time: 0,
-                overtime: otH,
-                ot_type: 'weekly',
-                pay_rate: pay_rate * 1.5,
+                overtime: Number(otH.toFixed(2)),
+                ot_type: 'Weekly',
+                pay_rate: Number((pay_rate * 1.5).toFixed(2)),
                 pay_amount: Number((otH * pay_rate * 1.5).toFixed(2))
               });
             }
@@ -214,9 +203,9 @@ function splitWeeklyOvertime(dailyRows) {
           results.push({
             ...r,
             regular_time: 0,
-            overtime: hr,
-            ot_type: 'weekly',
-            pay_rate: pay_rate * 1.5,
+            overtime: Number(hr.toFixed(2)),
+            ot_type: 'Weekly',
+            pay_rate: Number((pay_rate * 1.5).toFixed(2)),
             pay_amount: Number((hr * pay_rate * 1.5).toFixed(2))
           });
         }
@@ -226,9 +215,28 @@ function splitWeeklyOvertime(dailyRows) {
   return results;
 }
 
+// Sum Regular/OT/Amount per worker
+function summarizeByWorker(rows) {
+  let sums = {};
+  rows.forEach(r => {
+    let name = r.worker_name || r.worker_id;
+    if (!sums[name]) sums[name] = { worker_name: name, regular_time: 0, overtime: 0, pay_amount: 0 };
+    sums[name].regular_time += Number(r.regular_time || 0);
+    sums[name].overtime     += Number(r.overtime || 0);
+    sums[name].pay_amount   += Number(r.pay_amount || 0);
+  });
+  // Round up to 2 decimals
+  Object.values(sums).forEach(s => {
+    s.regular_time = Number(s.regular_time.toFixed(2));
+    s.overtime     = Number(s.overtime.toFixed(2));
+    s.pay_amount   = Number(s.pay_amount.toFixed(2));
+  });
+  return Object.values(sums);
+}
+
 // ========== MAIN API ========== //
 
-// GET /api/payroll?start_date=...&end_date=...&worker_id=...&project_id=...&billed=...&paid=...
+// GET /api/payroll
 router.get('/', async (req, res) => {
   try {
     const { start_date, end_date, worker_id, project_id, billed, paid } = req.query;
@@ -243,7 +251,6 @@ router.get('/', async (req, res) => {
     if (paid === 'true')    { wheres.push('ce.paid = true'); }
     if (paid === 'false')   { wheres.push('(ce.paid IS false OR ce.paid IS NULL)'); }
     let whereClause = wheres.length ? 'WHERE ' + wheres.join(' AND ') : '';
-    // Get all clock entries matching filter
     const q = await pool.query(`
       SELECT ce.*, w.name as worker_name, p.name as project_name
       FROM clock_entries ce
@@ -252,12 +259,10 @@ router.get('/', async (req, res) => {
       ${whereClause}
       ORDER BY ce.datetime_local ASC
     `, vals);
-
-    // --- Split into daily/weekly OT sessions ---
     let dailyRows = await splitDailyOvertime(q.rows);
     let finalRows = splitWeeklyOvertime(dailyRows);
-
-    res.json(finalRows);
+    let workerSums = summarizeByWorker(finalRows);
+    res.json({ rows: finalRows, workerSums });
   } catch (e) {
     console.error('API /api/payroll error:', e);
     res.status(500).json({ error: e.message || e.toString() });
@@ -309,11 +314,8 @@ router.get('/export', async (req, res) => {
       ${whereClause}
       ORDER BY ce.datetime_local ASC
     `, vals);
-
     let dailyRows = await splitDailyOvertime(q.rows);
     let finalRows = splitWeeklyOvertime(dailyRows);
-
-    // Format CSV
     let csv = [
       [
         'ID', 'Worker', 'Project', 'In', 'Out', 'Regular Hrs', 'OT Hrs', 'OT Type',
@@ -337,7 +339,6 @@ router.get('/export', async (req, res) => {
         `"${row.note || ''}"`
       ].join(','));
     }
-    // Filename: payroll_yymmddhh.csv
     const now = new Date();
     const filename = `payroll_${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}.csv`;
     res.setHeader('Content-Type', 'text/csv');
