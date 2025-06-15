@@ -15,12 +15,13 @@ async function getActivePayRate(worker_id, date) {
   return q.rows[0]?.rate || 0;
 }
 
-// 1. Helper: Group sessions into workdays, split daily OT
+// Group by: worker_id, project_id, day (YYYY-MM-DD)
 function groupByWorkerProjectDate(sessions) {
-  // Group by: worker_id, project_id, work_date (YYYY-MM-DD, from datetime_local)
   let groups = {};
   sessions.forEach(row => {
-    let day = row.datetime_local ? row.datetime_local.slice(0,10) : row.datetime_utc.slice(0,10);
+    let dateStr = row.datetime_local || row.datetime_utc;
+    if (!dateStr) return; // Defensive: skip row
+    let day = dateStr.slice(0,10);
     let key = `${row.worker_id}|${row.project_id}|${day}`;
     if (!groups[key]) groups[key] = [];
     groups[key].push(row);
@@ -28,16 +29,19 @@ function groupByWorkerProjectDate(sessions) {
   return groups;
 }
 
-// 2. Helper: Split daily OT for each workday
+// Helper: Split daily OT for each workday
 async function splitDailyOvertime(sessions) {
-  // Assume each row: { regular_time, overtime, ... }
   let result = [];
   let byDay = groupByWorkerProjectDate(sessions);
   for (let key in byDay) {
     let dayRows = byDay[key];
-    // sort by in/out
-    dayRows.sort((a,b) => (a.datetime_local||a.datetime_utc).localeCompare(b.datetime_local||b.datetime_utc));
-    // Pair ins/outs for time
+    // Sort by in/out time
+    dayRows.sort((a,b) => {
+      let aTime = a.datetime_local || a.datetime_utc || '';
+      let bTime = b.datetime_local || b.datetime_utc || '';
+      return aTime.localeCompare(bTime);
+    });
+    // Pair ins/outs
     let pairs = [];
     let stack = [];
     for (let row of dayRows) {
@@ -48,20 +52,27 @@ async function splitDailyOvertime(sessions) {
       }
     }
     // For each pair, calculate duration in hours
-    let totalHours = 0;
     let payPairs = [];
     for (let p of pairs) {
-      let inTime = DateTime.fromISO(p.in.datetime_local || p.in.datetime_utc, {zone: p.in.timezone || 'America/Los_Angeles'});
-      let outTime = DateTime.fromISO(p.out.datetime_local || p.out.datetime_utc, {zone: p.out.timezone || 'America/Los_Angeles'});
+      let inStr = p.in.datetime_local || p.in.datetime_utc;
+      let outStr = p.out.datetime_local || p.out.datetime_utc;
+      if (!inStr || !outStr) {
+        console.warn('Payroll: Skipping pair with missing datetime:', p);
+        continue;
+      }
+      let inTime = DateTime.fromISO(inStr, {zone: p.in.timezone || 'America/Los_Angeles'});
+      let outTime = DateTime.fromISO(outStr, {zone: p.out.timezone || 'America/Los_Angeles'});
+      if (!inTime.isValid || !outTime.isValid) {
+        console.warn('Payroll: Skipping invalid datetime:', inStr, outStr, p);
+        continue;
+      }
       let hours = outTime.diff(inTime, 'hours').hours;
       if (hours < 0) hours = 0; // Defensive
       payPairs.push({...p, hours, inTime, outTime});
-      totalHours += hours;
     }
-    // Now, split into regular/OT if needed
+    // Split into regular/OT if needed
     let regLeft = 8;
     for (let pp of payPairs) {
-      let type = '';
       let regH = 0, otH = 0;
       if (regLeft > 0) {
         if (pp.hours <= regLeft) {
@@ -76,8 +87,11 @@ async function splitDailyOvertime(sessions) {
         otH = pp.hours;
       }
       // Pay rate: from clock_entries or latest at inTime
+      let dateStr = pp.in.datetime_local || pp.in.datetime_utc;
       let pay_rate = pp.in.pay_rate;
-      if (!pay_rate || Number(pay_rate) === 0) pay_rate = await getActivePayRate(pp.in.worker_id, pp.in.datetime_local.slice(0,10));
+      if (!pay_rate || Number(pay_rate) === 0) {
+        pay_rate = await getActivePayRate(pp.in.worker_id, dateStr ? dateStr.slice(0,10) : '');
+      }
       // Regular portion
       if (regH > 0) {
         result.push({
@@ -115,12 +129,26 @@ async function splitDailyOvertime(sessions) {
   return result;
 }
 
-// 3. Helper: Split weekly OT
+// Helper: Split weekly OT
 function splitWeeklyOvertime(dailyRows) {
-  // Group by worker, ISO week
   let byWeek = {};
   dailyRows.forEach(row => {
-    let week = DateTime.fromISO(row.datetime_local || row.datetime_utc).toISOWeekDate().slice(0,8); // e.g. "2025-W24"
+    let dateStr = row.datetime_local || row.datetime_utc;
+    if (!dateStr) {
+      console.warn('Payroll: Skipping row with missing datetime for weekly OT:', row);
+      return;
+    }
+    let luxonDate = DateTime.fromISO(dateStr);
+    if (!luxonDate.isValid) {
+      console.warn('Payroll: Skipping invalid ISO date for weekly OT:', dateStr, row);
+      return;
+    }
+    let week = luxonDate.toISOWeekDate();
+    if (!week) {
+      console.warn('Payroll: Skipping row with null week:', row);
+      return;
+    }
+    week = week.slice(0,8); // "2025-W24"
     let key = `${row.worker_id}|${week}`;
     if (!byWeek[key]) byWeek[key] = [];
     byWeek[key].push(row);
@@ -129,7 +157,6 @@ function splitWeeklyOvertime(dailyRows) {
   for (let key in byWeek) {
     let rows = byWeek[key];
     let totalReg = 0;
-    // Calc total regular time in week
     rows.forEach(r => { if (r.ot_type === 'regular') totalReg += Number(r.regular_time || 0); });
     if (totalReg <= 40) {
       results = results.concat(rows);
@@ -147,7 +174,6 @@ function splitWeeklyOvertime(dailyRows) {
             results.push(r);
             regLeft -= hr;
           } else {
-            // Split: regLeft as regular, rest as weekly OT
             if (regLeft > 0) {
               results.push({
                 ...r,
@@ -172,7 +198,6 @@ function splitWeeklyOvertime(dailyRows) {
             regLeft = 0;
           }
         } else {
-          // All as weekly OT
           results.push({
             ...r,
             regular_time: 0,
@@ -192,33 +217,38 @@ function splitWeeklyOvertime(dailyRows) {
 
 // GET /api/payroll?start_date=...&end_date=...&worker_id=...&project_id=...&billed=...&paid=...
 router.get('/', async (req, res) => {
-  const { start_date, end_date, worker_id, project_id, billed, paid } = req.query;
-  let wheres = [];
-  let vals = [];
-  if (start_date) { vals.push(start_date); wheres.push(`ce.datetime_local >= $${vals.length}`); }
-  if (end_date)   { vals.push(end_date);   wheres.push(`ce.datetime_local <= $${vals.length}`); }
-  if (worker_id)  { vals.push(worker_id);  wheres.push(`ce.worker_id = $${vals.length}`); }
-  if (project_id) { vals.push(project_id); wheres.push(`ce.project_id = $${vals.length}`); }
-  if (billed === 'true')  { wheres.push('ce.billed = true'); }
-  if (billed === 'false') { wheres.push('(ce.billed IS false OR ce.billed IS NULL)'); }
-  if (paid === 'true')    { wheres.push('ce.paid = true'); }
-  if (paid === 'false')   { wheres.push('(ce.paid IS false OR ce.paid IS NULL)'); }
-  let whereClause = wheres.length ? 'WHERE ' + wheres.join(' AND ') : '';
-  // Get all clock entries matching filter
-  const q = await pool.query(`
-    SELECT ce.*, w.name as worker_name, p.name as project_name
-    FROM clock_entries ce
-    JOIN workers w ON ce.worker_id = w.worker_id
-    JOIN projects p ON ce.project_id = p.id
-    ${whereClause}
-    ORDER BY ce.datetime_local ASC
-  `, vals);
+  try {
+    const { start_date, end_date, worker_id, project_id, billed, paid } = req.query;
+    let wheres = [];
+    let vals = [];
+    if (start_date) { vals.push(start_date); wheres.push(`ce.datetime_local >= $${vals.length}`); }
+    if (end_date)   { vals.push(end_date);   wheres.push(`ce.datetime_local <= $${vals.length}`); }
+    if (worker_id)  { vals.push(worker_id);  wheres.push(`ce.worker_id = $${vals.length}`); }
+    if (project_id) { vals.push(project_id); wheres.push(`ce.project_id = $${vals.length}`); }
+    if (billed === 'true')  { wheres.push('ce.billed = true'); }
+    if (billed === 'false') { wheres.push('(ce.billed IS false OR ce.billed IS NULL)'); }
+    if (paid === 'true')    { wheres.push('ce.paid = true'); }
+    if (paid === 'false')   { wheres.push('(ce.paid IS false OR ce.paid IS NULL)'); }
+    let whereClause = wheres.length ? 'WHERE ' + wheres.join(' AND ') : '';
+    // Get all clock entries matching filter
+    const q = await pool.query(`
+      SELECT ce.*, w.name as worker_name, p.name as project_name
+      FROM clock_entries ce
+      JOIN workers w ON ce.worker_id = w.worker_id
+      JOIN projects p ON ce.project_id = p.id
+      ${whereClause}
+      ORDER BY ce.datetime_local ASC
+    `, vals);
 
-  // --- Split into daily/weekly OT sessions ---
-  let dailyRows = await splitDailyOvertime(q.rows);
-  let finalRows = splitWeeklyOvertime(dailyRows);
+    // --- Split into daily/weekly OT sessions ---
+    let dailyRows = await splitDailyOvertime(q.rows);
+    let finalRows = splitWeeklyOvertime(dailyRows);
 
-  res.json(finalRows);
+    res.json(finalRows);
+  } catch (e) {
+    console.error('API /api/payroll error:', e);
+    res.status(500).json({error: e.message || e.toString()});
+  }
 });
 
 // POST /api/payroll/bill
@@ -245,59 +275,63 @@ router.post('/paid', async (req, res) => {
 
 // GET /api/payroll/export
 router.get('/export', async (req, res) => {
-  // Use same filters as main GET
-  const { start_date, end_date, worker_id, project_id, billed, paid } = req.query;
-  let wheres = [];
-  let vals = [];
-  if (start_date) { vals.push(start_date); wheres.push(`ce.datetime_local >= $${vals.length}`); }
-  if (end_date)   { vals.push(end_date);   wheres.push(`ce.datetime_local <= $${vals.length}`); }
-  if (worker_id)  { vals.push(worker_id);  wheres.push(`ce.worker_id = $${vals.length}`); }
-  if (project_id) { vals.push(project_id); wheres.push(`ce.project_id = $${vals.length}`); }
-  if (billed === 'true')  { wheres.push('ce.billed = true'); }
-  if (billed === 'false') { wheres.push('(ce.billed IS false OR ce.billed IS NULL)'); }
-  if (paid === 'true')    { wheres.push('ce.paid = true'); }
-  if (paid === 'false')   { wheres.push('(ce.paid IS false OR ce.paid IS NULL)'); }
-  let whereClause = wheres.length ? 'WHERE ' + wheres.join(' AND ') : '';
-  const q = await pool.query(`
-    SELECT ce.*, w.name as worker_name, p.name as project_name
-    FROM clock_entries ce
-    JOIN workers w ON ce.worker_id = w.worker_id
-    JOIN projects p ON ce.project_id = p.id
-    ${whereClause}
-    ORDER BY ce.datetime_local ASC
-  `, vals);
+  try {
+    const { start_date, end_date, worker_id, project_id, billed, paid } = req.query;
+    let wheres = [];
+    let vals = [];
+    if (start_date) { vals.push(start_date); wheres.push(`ce.datetime_local >= $${vals.length}`); }
+    if (end_date)   { vals.push(end_date);   wheres.push(`ce.datetime_local <= $${vals.length}`); }
+    if (worker_id)  { vals.push(worker_id);  wheres.push(`ce.worker_id = $${vals.length}`); }
+    if (project_id) { vals.push(project_id); wheres.push(`ce.project_id = $${vals.length}`); }
+    if (billed === 'true')  { wheres.push('ce.billed = true'); }
+    if (billed === 'false') { wheres.push('(ce.billed IS false OR ce.billed IS NULL)'); }
+    if (paid === 'true')    { wheres.push('ce.paid = true'); }
+    if (paid === 'false')   { wheres.push('(ce.paid IS false OR ce.paid IS NULL)'); }
+    let whereClause = wheres.length ? 'WHERE ' + wheres.join(' AND ') : '';
+    const q = await pool.query(`
+      SELECT ce.*, w.name as worker_name, p.name as project_name
+      FROM clock_entries ce
+      JOIN workers w ON ce.worker_id = w.worker_id
+      JOIN projects p ON ce.project_id = p.id
+      ${whereClause}
+      ORDER BY ce.datetime_local ASC
+    `, vals);
 
-  let dailyRows = await splitDailyOvertime(q.rows);
-  let finalRows = splitWeeklyOvertime(dailyRows);
+    let dailyRows = await splitDailyOvertime(q.rows);
+    let finalRows = splitWeeklyOvertime(dailyRows);
 
-  // Format CSV
-  let csv = [
-    [
-      'ID','Worker','Project','In','Out','Regular Hrs','OT Hrs','OT Type',
-      'Pay Rate','Amount','Bill Date','Paid Date','Note'
-    ].join(',')
-  ];
-  for (let row of finalRows) {
-    csv.push([
-      row.id,
-      `"${row.worker_name}"`,
-      `"${row.project_name}"`,
-      row.datetime_local || '',
-      row.datetime_out_local || '',
-      row.regular_time || 0,
-      row.overtime || 0,
-      row.ot_type || '',
-      row.pay_rate ? Number(row.pay_rate).toFixed(2) : '',
-      row.pay_amount ? Number(row.pay_amount).toFixed(2) : '',
-      row.billed_date || '',
-      row.paid_date || '',
-      `"${row.note||''}"`
-    ].join(','));
+    // Format CSV
+    let csv = [
+      [
+        'ID','Worker','Project','In','Out','Regular Hrs','OT Hrs','OT Type',
+        'Pay Rate','Amount','Bill Date','Paid Date','Note'
+      ].join(',')
+    ];
+    for (let row of finalRows) {
+      csv.push([
+        row.id,
+        `"${row.worker_name}"`,
+        `"${row.project_name}"`,
+        row.datetime_local || '',
+        row.datetime_out_local || '',
+        row.regular_time || 0,
+        row.overtime || 0,
+        row.ot_type || '',
+        row.pay_rate ? Number(row.pay_rate).toFixed(2) : '',
+        row.pay_amount ? Number(row.pay_amount).toFixed(2) : '',
+        row.billed_date || '',
+        row.paid_date || '',
+        `"${row.note||''}"`
+      ].join(','));
+    }
+    const filename = `payroll_${DateTime.now().toFormat('yyMMddHH')}.csv`;
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    res.send(csv.join('\n'));
+  } catch (e) {
+    console.error('API /api/payroll/export error:', e);
+    res.status(500).json({error: e.message || e.toString()});
   }
-  const filename = `payroll_${DateTime.now().toFormat('yyMMddHH')}.csv`;
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-  res.send(csv.join('\n'));
 });
 
 module.exports = router;
