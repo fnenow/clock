@@ -5,6 +5,63 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
+<!-- Filters -->
+<form id="filter-form" class="row g-2 align-items-end mb-3">
+  <div class="col-auto">
+    <label for="filter-start" class="form-label">Start</label>
+    <input type="date" id="filter-start" class="form-control">
+  </div>
+  <div class="col-auto">
+    <label for="filter-end" class="form-label">End</label>
+    <input type="date" id="filter-end" class="form-control">
+  </div>
+  <div class="col-auto">
+    <label for="filter-worker" class="form-label">Worker</label>
+    <select id="filter-worker" class="form-select"></select>
+  </div>
+  <div class="col-auto">
+    <label for="filter-project" class="form-label">Project</label>
+    <select id="filter-project" class="form-select"></select>
+  </div>
+  <div class="col-auto">
+    <label for="filter-billed" class="form-label">Billed</label>
+    <select id="filter-billed" class="form-select">
+      <option value="">All</option>
+      <option value="false" selected>Unbilled</option>
+      <option value="true">Billed</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label for="filter-paid" class="form-label">Paid</label>
+    <select id="filter-paid" class="form-select">
+      <option value="">All</option>
+      <option value="false">Unpaid</option>
+      <option value="true">Paid</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="button" id="btn-clear" class="btn btn-secondary">Clear</button>
+  </div>
+</form>
+
+<!-- Table -->
+<table class="table table-bordered table-sm">
+  <thead>
+    <tr>
+      <th><input type="checkbox" id="check-all"></th>
+      <th>Worker</th><th>Project</th><th>In</th><th>Out</th>
+      <th>Regular Hrs</th><th>OT Hrs</th><th>OT Type</th>
+      <th>Pay Rate</th><th>Amount</th>
+      <th>Bill Date</th><th>Paid Date</th>
+    </tr>
+  </thead>
+  <tbody id="payroll-tbody"></tbody>
+</table>
+<div class="mb-3">
+  <button class="btn btn-primary" id="btn-bill">Mark as Billed</button>
+  <button class="btn btn-success" id="btn-paid">Mark as Paid</button>
+  <button class="btn btn-outline-info" id="btn-export">Export CSV</button>
+</div>
 <div class="container mt-5">
   <h2 class="text-center">Payroll</h2>
   <div id="payroll-section"></div>
