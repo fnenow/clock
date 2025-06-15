@@ -1,5 +1,5 @@
 async function loadProjects() {
-  const res = await fetch('/api/projects');
+  const res = await fetch('/api/project');
   const projects = await res.json();
   let html = `<table class="table table-bordered table-sm">
     <thead><tr>
@@ -46,7 +46,7 @@ async function addProject() {
     start_date: document.getElementById('prjStart').value,
     finish_date: document.getElementById('prjFinish').value
   };
-  await fetch('/api/projects', {
+  await fetch('/api/project', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
@@ -54,13 +54,13 @@ async function addProject() {
 }
 
 function editProject(id) {
-  // For brevity: fetch the project info, show form to edit, submit to PUT /api/projects/:id
+  // For brevity: fetch the project info, show form to edit, submit to PUT /api/project/:id
   alert('Edit project functionality: expand here!');
 }
 
 async function deleteProject(id) {
   if (!confirm("Delete this project?")) return;
-  await fetch('/api/projects/' + id, { method: 'DELETE' });
+  await fetch('/api/project/' + id, { method: 'DELETE' });
   loadProjects();
 }
 
