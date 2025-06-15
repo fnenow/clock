@@ -1,150 +1,140 @@
-// /public/js/payroll.js
-const API_URL = '/api/payroll';
-let payrollData = [];
 let filters = {
-  start_date: '',
-  end_date: '',
-  worker_id: '',
-  project_id: '',
-  billed: 'false', // default: unbilled only
-  paid: ''
+  start_date: "",
+  end_date: "",
+  worker_id: "",
+  project_id: "",
+  billed: "",
+  paid: ""
 };
 
-// ========== UI INIT ========== //
-window.onload = async () => {
-  await loadFilterOptions();
-  await loadPayroll();
-  bindFilterEvents();
-  document.getElementById('btn-bill').onclick = markAsBilled;
-  document.getElementById('btn-paid').onclick = markAsPaid;
-  document.getElementById('btn-export').onclick = exportCSV;
-};
+async function loadWorkersAndProjects() {
+  // Populate worker and project dropdowns
+  const [workersRes, projectsRes] = await Promise.all([
+    fetch('/api/worker/all'),  // your /routes/worker.js should have router.get('/all')
+    fetch('/api/projects')     // your /routes/project.js should have router.get('/')
+  ]);
+  const workers = await workersRes.json();
+  const projects = await projectsRes.json();
 
-async function loadFilterOptions() {
-  // Load workers
-  let res = await fetch('/api/worker/all');
-  let workers = await res.json();
-  let workerSel = document.getElementById('filter-worker');
-  workerSel.innerHTML = `<option value="">All Workers</option>`;
-  workers.forEach(w => workerSel.innerHTML += `<option value="${w.worker_id}">${w.name}</option>`);
-  // Load projects
-  res = await fetch('/api/projects');
-  let projects = await res.json();
-  let projSel = document.getElementById('filter-project');
-  projSel.innerHTML = `<option value="">All Projects</option>`;
-  projects.forEach(p => projSel.innerHTML += `<option value="${p.id}">${p.name}</option>`);
+  let wOpt = '<option value="">All</option>';
+  workers.forEach(w => wOpt += `<option value="${w.worker_id}">${w.name}</option>`);
+  document.getElementById('filter-worker').innerHTML = wOpt;
+
+  let pOpt = '<option value="">All</option>';
+  projects.forEach(p => pOpt += `<option value="${p.id}">${p.name}</option>`);
+  document.getElementById('filter-project').innerHTML = pOpt;
 }
 
-function bindFilterEvents() {
-  // On change of any filter, reload payroll
-  ['filter-start', 'filter-end', 'filter-worker', 'filter-project', 'filter-billed', 'filter-paid'].forEach(id => {
-    document.getElementById(id).onchange = loadPayroll;
-  });
-  document.getElementById('btn-clear').onclick = () => {
-    filters = { start_date:'', end_date:'', worker_id:'', project_id:'', billed:'false', paid:'' };
-    document.getElementById('filter-form').reset();
-    loadPayroll();
-  }
+function getFilterValues() {
+  return {
+    start_date: document.getElementById('filter-start').value,
+    end_date: document.getElementById('filter-end').value,
+    worker_id: document.getElementById('filter-worker').value,
+    project_id: document.getElementById('filter-project').value,
+    billed: document.getElementById('filter-billed').value,
+    paid: document.getElementById('filter-paid').value
+  };
 }
 
-// ========== DATA LOADING ========== //
 async function loadPayroll() {
-  // Collect filter values
-  filters.start_date = document.getElementById('filter-start').value;
-  filters.end_date   = document.getElementById('filter-end').value;
-  filters.worker_id  = document.getElementById('filter-worker').value;
-  filters.project_id = document.getElementById('filter-project').value;
-  filters.billed     = document.getElementById('filter-billed').value;
-  filters.paid       = document.getElementById('filter-paid').value;
-
-  // Build query params
-  let params = [];
-  Object.entries(filters).forEach(([k, v]) => {
-    if (v) params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
-  });
-  let url = `${API_URL}?${params.join('&')}`;
-
-  // Fetch data
-  let res = await fetch(url);
-  payrollData = await res.json();
-
-  renderPayrollTable();
+  filters = getFilterValues();
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
+  const res = await fetch('/api/payroll?' + params.toString());
+  const { rows, workerSums } = await res.json();
+  renderPayrollSummary(workerSums);
+  renderPayrollTable(rows);
 }
 
-function renderPayrollTable() {
-  let tbody = '';
-  payrollData.forEach(row => {
-    tbody += `<tr>
-      <td><input type="checkbox" class="row-check" data-id="${row.id}"></td>
-      <td>${row.worker_name}</td>
-      <td>${row.project_name}</td>
-      <td>${formatDate(row.datetime_local)}</td>
-      <td>${formatDate(row.datetime_out_local)}</td>
-      <td>${row.regular_time || ''}</td>
-      <td>${row.overtime || ''}</td>
-      <td>${row.ot_type ? row.ot_type.toUpperCase() : ''}</td>
-      <td>${fmtCurrency(row.pay_rate)}</td>
-      <td>${fmtCurrency(row.pay_amount)}</td>
-      <td>${row.billed_date ? formatDate(row.billed_date) : ''}</td>
-      <td>${row.paid_date ? formatDate(row.paid_date) : ''}</td>
+function renderPayrollSummary(workerSums) {
+  if (!workerSums.length) {
+    document.getElementById('payroll-summary').innerHTML = '';
+    return;
+  }
+  let html = `<h5>Period Summary</h5>
+  <table class="table table-bordered table-sm mb-4"><thead>
+    <tr><th>Worker</th><th>Regular Hours</th><th>OT Hours</th><th>Amount</th></tr>
+  </thead><tbody>`;
+  workerSums.forEach(w =>
+    html += `<tr>
+      <td>${w.worker_name}</td>
+      <td>${w.regular_time.toFixed(2)}</td>
+      <td>${w.overtime.toFixed(2)}</td>
+      <td>$${w.pay_amount.toFixed(2)}</td>
+    </tr>`);
+  html += '</tbody></table>';
+  document.getElementById('payroll-summary').innerHTML = html;
+}
+
+function renderPayrollTable(rows) {
+  let html = `<table class="table table-bordered table-sm">
+    <thead><tr>
+      <th><input type="checkbox" id="check-all" onchange="toggleAllChecks(this)"></th>
+      <th>Worker</th><th>Project</th>
+      <th>In</th><th>Out</th>
+      <th>Regular Hours</th><th>OT Hours</th><th>OT Type</th>
+      <th>Pay Rate</th><th>Amount</th>
+      <th>Bill Date</th><th>Paid Date</th><th>Note</th>
+    </tr></thead><tbody>`;
+  for (let r of rows) {
+    html += `<tr>
+      <td><input type="checkbox" class="payroll-check" value="${r.id}"></td>
+      <td>${r.worker_name}</td>
+      <td>${r.project_name}</td>
+      <td>${r.datetime_local || ''}</td>
+      <td>${r.datetime_out_local || ''}</td>
+      <td>${Number(r.regular_time || 0).toFixed(2)}</td>
+      <td>${Number(r.overtime || 0).toFixed(2)}</td>
+      <td>${r.ot_type || ''}</td>
+      <td>${r.pay_rate ? Number(r.pay_rate).toFixed(2) : ''}</td>
+      <td>${r.pay_amount ? Number(r.pay_amount).toFixed(2) : ''}</td>
+      <td>${r.billed_date || ''}</td>
+      <td>${r.paid_date || ''}</td>
+      <td>${r.note || ''}</td>
     </tr>`;
-  });
-
-  document.getElementById('payroll-tbody').innerHTML = tbody;
+  }
+  html += `</tbody></table>`;
+  document.getElementById('payroll-table').innerHTML = html;
 }
 
-// ========== ACTIONS ========== //
-function getSelectedIds() {
-  return Array.from(document.querySelectorAll('.row-check:checked'))
-    .map(cb => parseInt(cb.dataset.id));
+function toggleAllChecks(source) {
+  document.querySelectorAll('.payroll-check').forEach(cb => cb.checked = source.checked);
 }
 
-async function markAsBilled() {
-  let ids = getSelectedIds();
-  if (!ids.length) return alert('Select rows to bill.');
-  let billed_date = prompt('Enter Bill Date (YYYY-MM-DD):', (new Date()).toISOString().slice(0,10));
+async function billSelected() {
+  const ids = Array.from(document.querySelectorAll('.payroll-check:checked')).map(cb => Number(cb.value));
+  if (!ids.length) return alert('No entries selected.');
+  const billed_date = prompt('Enter Bill Date (any format):');
   if (!billed_date) return;
-  await fetch(`${API_URL}/bill`, {
+  await fetch('/api/payroll/bill', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entry_ids: ids, billed_date })
   });
-  await loadPayroll();
+  loadPayroll();
 }
 
-async function markAsPaid() {
-  let ids = getSelectedIds();
-  if (!ids.length) return alert('Select rows to mark as paid.');
-  let paid_date = prompt('Enter Paid Date (YYYY-MM-DD):', (new Date()).toISOString().slice(0,10));
+async function paidSelected() {
+  const ids = Array.from(document.querySelectorAll('.payroll-check:checked')).map(cb => Number(cb.value));
+  if (!ids.length) return alert('No entries selected.');
+  const paid_date = prompt('Enter Paid Date (any format):');
   if (!paid_date) return;
-  await fetch(`${API_URL}/paid`, {
+  await fetch('/api/payroll/paid', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entry_ids: ids, paid_date })
   });
-  await loadPayroll();
+  loadPayroll();
 }
 
 function exportCSV() {
-  // Build query string with current filters
-  let params = [];
-  Object.entries(filters).forEach(([k, v]) => {
-    if (v) params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
-  });
-  let url = `${API_URL}/export?${params.join('&')}`;
-  window.open(url, '_blank');
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
+  window.open('/api/payroll/export?' + params.toString(), '_blank');
 }
 
-// ========== HELPERS ========== //
-function formatDate(str) {
-  if (!str) return '';
-  let d = new Date(str);
-  if (isNaN(d)) return str;
-  return d.toLocaleString('en-US', {year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
-}
-
-function fmtCurrency(v) {
-  if (v == null || v === '') return '';
-  return '$' + parseFloat(v).toFixed(2);
-}
-
+window.onload = async function () {
+  await loadWorkersAndProjects();
+  document.getElementById('filter-btn').onclick = loadPayroll;
+  loadPayroll();
+};
