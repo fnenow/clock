@@ -8,6 +8,14 @@ function last5(phone) {
   return phone.replace(/\D/g, '').slice(-5);
 }
 
+// Add this route:
+router.get('/all', async (req, res) => {
+  const q = await pool.query(
+    `SELECT worker_id, name FROM workers WHERE inactive IS NOT TRUE ORDER BY name ASC`
+  );
+  res.json(q.rows);
+});
+
 // Add worker
 router.post('/', async (req, res) => {
   const { name, phone, start_date, note, worker_id: customId } = req.body;
