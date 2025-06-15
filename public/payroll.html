@@ -44,28 +44,56 @@
   </div>
 </form>
 
-<!-- Table -->
-<table class="table table-bordered table-sm">
-  <thead>
-    <tr>
-      <th><input type="checkbox" id="check-all"></th>
-      <th>Worker</th><th>Project</th><th>In</th><th>Out</th>
-      <th>Regular Hrs</th><th>OT Hrs</th><th>OT Type</th>
-      <th>Pay Rate</th><th>Amount</th>
-      <th>Bill Date</th><th>Paid Date</th>
-    </tr>
-  </thead>
-  <tbody id="payroll-tbody"></tbody>
-</table>
-<div class="mb-3">
-  <button class="btn btn-primary" id="btn-bill">Mark as Billed</button>
-  <button class="btn btn-success" id="btn-paid">Mark as Paid</button>
-  <button class="btn btn-outline-info" id="btn-export">Export CSV</button>
-</div>
 <div class="container mt-5">
-  <h2 class="text-center">Payroll</h2>
-  <div id="payroll-section"></div>
-  <button class="btn btn-primary mt-3" onclick="exportCSV()">Export CSV</button>
+  <h2 class="text-center mb-3">Payroll</h2>
+  <form class="row g-2 mb-3" id="payroll-filter-form" onsubmit="return false;">
+    <div class="col-auto">
+      <label>Start</label>
+      <input type="date" class="form-control" id="filter-start">
+    </div>
+    <div class="col-auto">
+      <label>End</label>
+      <input type="date" class="form-control" id="filter-end">
+    </div>
+    <div class="col-auto">
+      <label>Worker</label>
+      <select class="form-select" id="filter-worker"></select>
+    </div>
+    <div class="col-auto">
+      <label>Project</label>
+      <select class="form-select" id="filter-project"></select>
+    </div>
+    <div class="col-auto">
+      <label>Billed</label>
+      <select class="form-select" id="filter-billed">
+        <option value="">All</option>
+        <option value="false">Unbilled</option>
+        <option value="true">Billed</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <label>Paid</label>
+      <select class="form-select" id="filter-paid">
+        <option value="">All</option>
+        <option value="false">Unpaid</option>
+        <option value="true">Paid</option>
+      </select>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button class="btn btn-primary" id="filter-btn" type="button">Filter</button>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button class="btn btn-success" type="button" onclick="billSelected()">Mark Billed</button>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button class="btn btn-info" type="button" onclick="paidSelected()">Mark Paid</button>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button class="btn btn-secondary" type="button" onclick="exportCSV()">Export CSV</button>
+    </div>
+  </form>
+  <div id="payroll-summary"></div>
+  <div id="payroll-table"></div>
 </div>
 <script src="js/payroll.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
