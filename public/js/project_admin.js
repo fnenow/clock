@@ -39,6 +39,7 @@ function showAddForm() {
 }
 
 async function addProject() {
+  function emptyToNull(val) { return val && val.trim() ? val : null; }
   const body = {
     name: document.getElementById('prjName').value,
     location: document.getElementById('prjLoc').value,
@@ -50,6 +51,9 @@ async function addProject() {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
+   if (!resp.ok) {
+    alert("Add failed: " + (await resp.text()));
+  }
   loadProjects();
 }
 
