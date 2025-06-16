@@ -89,4 +89,16 @@ router.post('/unassign', async (req, res) => {
   }
 });
 
+// GET /api/projects - alias for /api/project for frontend compatibility
+router.get('/projects', async (req, res) => {
+  try {
+    const q = await pool.query(
+      'SELECT * FROM projects WHERE hidden IS FALSE OR hidden IS NULL ORDER BY id'
+    );
+    res.json(q.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
