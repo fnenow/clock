@@ -1,3 +1,15 @@
+function formatDateDisplay(str) {
+  if (!str) return '';
+  // Accepts either "2025-06-15T00:00:00.000Z" or "2025-06-15"
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    // Get year-month-day in UTC (matches DB Zulu string)
+    return d.toISOString().slice(0, 10);
+  }
+  // If can't parse, just return as is
+  return str.length > 10 ? str.slice(0, 10) : str;
+}
+
 let filters = {
   start_date: "",
   end_date: "",
@@ -83,14 +95,15 @@ function renderPayrollTable(rows) {
       <td>${r.project_name}</td>
       <td>${r.datetime_local || ''}</td>
       <td>${r.datetime_out_local || ''}</td>
-      <td>${Number(r.regular_time || 0).toFixed(2)}</td>
-      <td>${Number(r.overtime || 0).toFixed(2)}</td>
+      <td>${r.regular_time && Number(r.regular_time) !== 0 ? Number(r.regular_time).toFixed(2) : ''}</td>
+      <td>${r.overtime && Number(r.overtime) !== 0 ? Number(r.overtime).toFixed(2) : ''}</td>
       <td>${r.ot_type || ''}</td>
       <td>${r.pay_rate ? Number(r.pay_rate).toFixed(2) : ''}</td>
       <td>${r.pay_amount ? Number(r.pay_amount).toFixed(2) : ''}</td>
-      <td>${r.billed_date || ''}</td>
-      <td>${r.paid_date || ''}</td>
-      <td>${r.note || ''}</td>
+      <td>${formatDateDisplay(r.billed_date)}</td>
+      <td>${formatDateDisplay(r.paid_date)}</td>
+    <td>${r.note || ''}</td>
+
     </tr>`;
   }
   html += `</tbody></table>`;
