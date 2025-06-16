@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FNE Time Clock - Payroll</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .sticky-header th {
+      position: sticky;
+      top: 0;
+      background: #ccc;
+      z-index: 2;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .date-group-row td {
+      background: #eee;
+      font-weight: bold;
+      border-top: 2px solid #bbb;
+    }
+    .payroll-table th, .payroll-table td {
+      text-align: center;
+      vertical-align: middle;
+    }
+    .payroll-table {
+      min-width: 950px;
+    }
+  </style>
+</head>
+<body class="bg-light">
+<!-- Filters -->
+<div class="container mt-5">
+  <h2 class="text-center mb-3">Payroll</h2>
+  <form class="row g-2 mb-3" id="payroll-filter-form" onsubmit="return false;">
+    <div class="col-auto">
+      <label>Start</label>
+      <input type="date" class="form-control" id="filter-start">
+    </div>
+    <div class="col-auto">
+      <label>End</label>
+      <input type="date" class="form-control" id="filter-end">
+    </div>
+    <div class="col-auto">
+      <label>Worker</label>
+      <select class="form-select" id="filter-worker"></select>
+    </div>
+    <div class="col-auto">
+      <label>Project</label>
+      <select class="form-select" id="filter-project"></select>
+    </div>
+    <div class="col-auto">
+      <label>Billed</label>
+      <select class="form-select" id="filter-billed">
+        <option value="">All</option>
+        <option value="false">Unbilled</option>
+        <option value="true">Billed</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <label>Paid</label>
+      <select class="form-select" id="filter-paid">
+        <option value="">All</option>
+        <option value="false">Unpaid</option>
+        <option value="true">Paid</option>
+      </select>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button class="btn btn-primary" id="filter-btn" type="button">Filter</button>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button class="btn btn-success" type="button" onclick="billSelected()">Mark Billed</button>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button class="btn btn-info" type="button" onclick="paidSelected()">Mark Paid</button>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button class="btn btn-secondary" type="button" onclick="exportCSV()">Export CSV</button>
+    </div>
+  </form>
+  <div id="payroll-summary"></div>
+  <div id="payroll-table"></div>
+</div>
+<script src="js/payroll.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Patch payrollTable rendering to match the screenshot grouping by date
+function renderPayrollTable(data) {
+  // Data: array of objects with fields: date, project, worker, in, out, hours, ot, rate, amount
+  // Group by date
+  const groupByDate = {};
+  data.forEach(row => {
+    if (!groupByDate[row.date]) groupByDate[row.date] = [];
+    groupByDate[row.date].push(row);
+  });
+
+  let html = '<div class="table-responsive"><table class="table table-bordered payroll-table">';
+  html += '<thead class="sticky-header"><tr>'
+    + '<th>Date</th><th>Project</th><th>Worker</th><th>In</th><th>Out</th><th>Hours</th><th>OT</th><th>Rate</th><th>Amount</th>'
+    + '</tr></thead><tbody>';
+
+  Object.keys(groupByDate).sort().forEach(date => {
+    const rows = groupByDate[date];
+    rows.forEach((row, i) => {
+      html += '<tr>';
+      if (i === 0) {
+        html += `<td rowspan="${rows.length}" class="align-middle fw-bold" style="background:#eee;border-top:2px solid #bbb;">${date}</td>`;
+      }
+      html += `<td>${row.project}</td><td>${row.worker}</td><td>${row.in}</td><td>${row.out}</td><td>${parseFloat(row.hours).toFixed(2)}</td><td>${parseFloat(row.ot).toFixed(2)}</td><td>${row.rate}</td><td>${parseFloat(row.amount).toFixed(2)}</td>`;
+      html += '</tr>';
+    });
+  });
+
+  html += '</tbody></table></div>';
+  document.getElementById('payroll-table').innerHTML = html;
+}
+
+// Patch to call our table rendering after data is loaded/filtered
+if (typeof updatePayrollTable === 'function') {
+  // wrap the original
+  const origUpdate = updatePayrollTable;
+  window.updatePayrollTable = function(data) {
+    renderPayrollTable(data);
+    // origUpdate(data); // optionally call original if needed for other features
+  };
+} else {
+  // fallback, if data is global or fetched, try to auto-render if possible (for new js)
+  window.renderPayrollTable = renderPayrollTable;
+}
+</script>
+</body>
+</html>
