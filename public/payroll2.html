@@ -3,18 +3,40 @@
 <head>
   <title>FNE Time Clock - Payroll Report</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    /* Custom styles for payroll report */
+    .table-report th {
+      background-color: #f0f0f0;
+      font-weight: 600;
+    }
+    .date-cell {
+      background-color: #f8f9fa;
+      font-weight: 500;
+    }
+    .action-row {
+      margin-bottom: 20px;
+    }
+    .table-report td, .table-report th {
+      padding: 6px 10px;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .empty-cell {
+      background-color: #ffffff;
+    }
+  </style>
 </head>
 <body class="bg-light">
 <div class="container mt-5">
   <h2 class="text-center mb-3">Payroll Report</h2>
   <form class="row g-2 mb-3" id="payroll-filter-form" onsubmit="return false;">
     <div class="col-auto">
-      <label>Date Range</label>
-      <div class="input-group">
-        <input type="date" class="form-control" id="filter-start">
-        <span class="input-group-text">to</span>
-        <input type="date" class="form-control" id="filter-end">
-      </div>
+      <label>Start</label>
+      <input type="date" class="form-control" id="filter-start">
+    </div>
+    <div class="col-auto">
+      <label>End</label>
+      <input type="date" class="form-control" id="filter-end">
     </div>
     <div class="col-auto">
       <label>Worker</label>
@@ -43,18 +65,26 @@
     <div class="col-auto d-flex align-items-end">
       <button class="btn btn-primary" id="filter-btn" type="button">Filter</button>
     </div>
-    <div class="col-auto d-flex align-items-end">
-      <button class="btn btn-success" type="button" onclick="billSelected()">Mark Billed</button>
-    </div>
-    <div class="col-auto d-flex align-items-end">
-      <button class="btn btn-info" type="button" onclick="paidSelected()">Mark Paid</button>
-    </div>
-    <div class="col-auto d-flex align-items-end">
-      <button class="btn btn-secondary" type="button" onclick="exportCSV()">Export CSV</button>
-    </div>
   </form>
-  <div id="payroll-table" class="table-responsive">
-    <table class="table table-bordered table-sm text-center">
+  
+  <div class="row action-row">
+    <div class="col">
+      <div class="btn-group" role="group">
+        <button class="btn btn-success" type="button" onclick="billSelected()">Mark Billed</button>
+        <button class="btn btn-info" type="button" onclick="paidSelected()">Mark Paid</button>
+        <button class="btn btn-secondary" type="button" onclick="exportCSV()">Export CSV</button>
+      </div>
+      <div class="form-check form-check-inline ms-3">
+        <input class="form-check-input" type="checkbox" id="check-all" onchange="toggleAllChecks(this)">
+        <label class="form-check-label" for="check-all">Select All</label>
+      </div>
+    </div>
+  </div>
+
+  <div id="payroll-summary"></div>
+  
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm table-report" id="payroll-table-container">
       <thead>
         <tr>
           <th>Date</th>
@@ -66,14 +96,67 @@
           <th>OT</th>
           <th>Rate</th>
           <th>Amount</th>
+          <th class="text-center"><input type="checkbox" style="visibility:hidden"></th>
         </tr>
       </thead>
-      <tbody id="payroll-table-body">
-        <!-- Rows will be dynamically inserted -->
+      <tbody id="payroll-table">
+        <!-- Entries will be dynamically generated -->
       </tbody>
     </table>
   </div>
 </div>
+
+<script>
+// Override the renderPayrollTable function to match the desired format
+function renderPayrollTable(rows) {
+  if (!rows || !rows.length) {
+    document.getElementById('payroll-table').innerHTML = '<tr><td colspan="10">No data available</td></tr>';
+    return;
+  }
+  
+  // Group by date
+  let byDate = {};
+  rows.forEach(r => {
+    let dateStr = r.datetime_local ? r.datetime_local.slice(0, 10) : '';
+    if (!byDate[dateStr]) byDate[dateStr] = [];
+    byDate[dateStr].push(r);
+  });
+  
+  let html = '';
+  Object.keys(byDate).sort().forEach(date => {
+    const dateRows = byDate[date];
+    let isFirst = true;
+    
+    dateRows.forEach(r => {
+      const inTime = r.datetime_local ? new Date(r.datetime_local).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit', hour12: false }) : '';
+      const outTime = r.datetime_out_local ? new Date(r.datetime_out_local).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit', hour12: false }) : '';
+      
+      html += '<tr>';
+      
+      // Only show date for first row of the group
+      if (isFirst) {
+        html += `<td class="date-cell" rowspan="${dateRows.length}">${date}</td>`;
+        isFirst = false;
+      }
+      
+      html += `
+        <td>${r.project_name}</td>
+        <td>${r.worker_name}</td>
+        <td>${inTime}</td>
+        <td>${outTime}</td>
+        <td>${r.regular_time ? Number(r.regular_time).toFixed(2) : ''}</td>
+        <td>${r.overtime ? Number(r.overtime).toFixed(2) : ''}</td>
+        <td>${r.pay_rate ? Number(r.pay_rate).toFixed(2) : ''}</td>
+        <td>${r.pay_amount ? Number(r.pay_amount).toFixed(2) : ''}</td>
+        <td><input type="checkbox" class="payroll-check" value="${r.id}"></td>
+      </tr>`;
+    });
+  });
+  
+  document.getElementById('payroll-table').innerHTML = html;
+}
+</script>
+
 <script src="js/payroll.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
