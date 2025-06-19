@@ -19,7 +19,16 @@ function formatDateTime(date) {
 function toDbDatetime(str) {
   return str.replace('T', ' ');
 }
-
+// Get all sessions for a worker
+router.get('/api/sessions/:worker_id', async (req, res) => {
+  const { worker_id } = req.params;
+  // Adjust query as needed for your definition of a "session"
+  const q = await pool.query(
+    `SELECT * FROM clock_entries WHERE worker_id = $1 ORDER BY datetime_local DESC`,
+    [worker_id]
+  );
+  res.json(q.rows);
+});
 // Helper: Get current pay rate for worker
 async function getPayRate(worker_id) {
   const q = await pool.query(
