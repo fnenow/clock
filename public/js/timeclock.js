@@ -254,30 +254,3 @@ async function changePassword() {
     alert(data.message || "Password change failed.");
   }
 }
-
-/**
- * Fetch worker's sessions from backend API.
- * Assumes workerId is stored in localStorage after login.
- * Returns: Promise resolving to an array of session objects, each with varchar datetime fields.
- */
-function fetchWorkerSessions() {
-  return new Promise((resolve, reject) => {
-    if (!currentWorker || !currentWorker.worker_id) {
-      resolve([]);
-      return;
-    }
-    fetch(`/api/sessions?workerId=${encodeURIComponent(currentWorker.worker_id)}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    })
-    .then(response => {
-      if (!response.ok) throw new Error('API error');
-      return response.json();
-    })
-    .then(data => resolve(data))
-    .catch(err => {
-      console.error('Failed to fetch worker sessions:', err);
-      resolve([]);
-    });
-  });
-}
