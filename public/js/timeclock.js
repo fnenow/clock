@@ -266,7 +266,7 @@ function fetchWorkerSessions() {
       resolve([]);
       return;
     }
-    fetch(`/api/sessions/${currentWorker.worker_id}`), {
+    fetch(`/api/sessions?workerId=${encodeURIComponent(currentWorker.worker_id)}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     })
