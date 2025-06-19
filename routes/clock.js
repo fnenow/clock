@@ -298,14 +298,6 @@ router.patch('/api/clock-entries/:id', async (req, res) => {
     res.status(500).json({ message: 'Error updating entry' });
   }
 });
-router.get('/api/sessions', async (req, res) => {
-  const { workerId } = req.query;
-  if (!workerId) return res.status(400).json({ message: "Missing workerId" });
-  const q = await pool.query(
-    `SELECT * FROM clock_entries WHERE worker_id = $1 ORDER BY datetime_local DESC`,
-    [workerId]
-  );
-  res.json(q.rows);
-});
+
 
 module.exports = router;
