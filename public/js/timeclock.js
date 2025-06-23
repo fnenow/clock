@@ -4,26 +4,20 @@ let sessionID = null;
 let clockedIn = false;
 let clockInTime = null;
 
-// Restore sessionID if present in localStorage
 if (localStorage.getItem('sessionID')) {
   sessionID = localStorage.getItem('sessionID');
 }
 
-// Use plain JS for date and time!
 function getCurrentDateAndTime() {
   const now = new Date();
   const pad = n => n.toString().padStart(2, '0');
   return {
     date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
     time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-    // Only use Luxon for offset to avoid DST issues
-    offset: typeof luxon !== 'undefined'
-      ? luxon.DateTime.now().offset
-      : -now.getTimezoneOffset()
+    offset: -now.getTimezoneOffset()
   };
 }
 
-// For updating clock every minute on form fields
 let clockInterval;
 function startClockUpdater() {
   if (clockInterval) clearInterval(clockInterval);
@@ -49,6 +43,7 @@ async function login() {
   const data = await res.json();
   if (data.success) {
     currentWorker = data.worker;
+    localStorage.setItem('worker', JSON.stringify(currentWorker));
     document.getElementById('login-section').style.display = 'none';
     document.getElementById('clock-section').style.display = '';
     document.getElementById('greeting').textContent = `Hi, ${currentWorker.name}`;
@@ -59,6 +54,7 @@ async function login() {
 }
 
 async function loadClockStatus() {
+  currentWorker = JSON.parse(localStorage.getItem('worker'));
   const res = await fetch(`/api/clock/status/${currentWorker.worker_id}`);
   const lastEntry = await res.json();
   clockedIn = lastEntry && lastEntry.action === 'in';
@@ -149,7 +145,6 @@ function updateDuration() {
   setTimeout(updateDuration, 1000);
 }
 
-// Plain JS version for datetime_local and offset
 function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
   const dateVal = document.getElementById(dateFieldId).value;
   const timeVal = document.getElementById(timeFieldId).value;
@@ -157,15 +152,11 @@ function getLocalDateTimeAndOffset(dateFieldId, timeFieldId) {
   if (dateVal && timeVal) {
     datetime_local = `${dateVal}T${timeVal}`;
   } else {
-    // fallback: current time, truncated to minute
     const now = new Date();
     const pad = n => n.toString().padStart(2, '0');
     datetime_local = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
   }
-  // Only use Luxon for offset to handle DST if loaded, else fallback to JS
-  const timezone_offset = typeof luxon !== 'undefined'
-    ? luxon.DateTime.now().offset
-    : -new Date().getTimezoneOffset();
+  const timezone_offset = -new Date().getTimezoneOffset();
   return { datetime_local, timezone_offset };
 }
 
@@ -174,8 +165,6 @@ async function clockIn() {
   if (!project_id) return alert("Please select a project.");
   const note = document.getElementById('note').value;
   const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDate', 'customTime');
-    // --- Add this line below ---
-  console.log('clock in', datetime_local, timezone_offset);
   const res = await fetch('/api/clock/in', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -202,8 +191,6 @@ async function clockOut() {
   if (!sessionID) return alert("No active session ID found, please reload or re-login.");
   const note = document.getElementById('noteOut').value;
   const { datetime_local, timezone_offset } = getLocalDateTimeAndOffset('customDateOut', 'customTimeOut');
-    // --- Add this line below ---
-  console.log('clock out', datetime_local, timezone_offset);
   await fetch('/api/clock/out', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -221,9 +208,9 @@ async function clockOut() {
   loadClockStatus();
 }
 
-function logout() {
-  currentWorker = null;
-  sessionID = null;
+async function logout() {
+  await fetch('/api/worker/logout', { method: 'POST' });
+  localStorage.removeItem('worker');
   localStorage.removeItem('sessionID');
   location.reload();
 }

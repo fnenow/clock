@@ -8,11 +8,19 @@ function last5(phone) {
   return phone.replace(/\D/g, '').slice(-5);
 }
 
-// Add this route:
+// --- Worker CRUD ---
+
+// List all (active) workers, minimal fields
 router.get('/all', async (req, res) => {
   const q = await pool.query(
     `SELECT worker_id, name FROM workers WHERE inactive IS NOT TRUE ORDER BY name ASC`
   );
+  res.json(q.rows);
+});
+
+// List all workers, full fields
+router.get('/list', async (req, res) => {
+  const q = await pool.query('SELECT * FROM workers ORDER BY created_at DESC');
   res.json(q.rows);
 });
 
@@ -53,13 +61,9 @@ router.delete('/:worker_id', async (req, res) => {
   res.json({ success: true });
 });
 
-// List all workers
-router.get('/list', async (req, res) => {
-  const q = await pool.query('SELECT * FROM workers ORDER BY created_at DESC');
-  res.json(q.rows);
-});
+// --- Worker/Project Assignment ---
 
-// Get projects assigned to worker
+// Get projects assigned to worker (with hidden filter)
 router.get('/projects/:worker_id', async (req, res) => {
   const { worker_id } = req.params;
   const q = await pool.query(
@@ -90,25 +94,49 @@ router.post('/:worker_id/unassign', async (req, res) => {
   res.json({ success: true });
 });
 
-// Worker login
+// --- Auth and Session ---
+
+// Worker login (with session)
 router.post('/login', async (req, res) => {
   const { worker_id, password } = req.body;
-  const q = await pool.query('SELECT * FROM workers WHERE worker_id=$1', [worker_id]);
+  const q = await pool.query('SELECT * FROM workers WHERE worker_id = $1', [worker_id]);
   const worker = q.rows[0];
-  if (!worker) return res.json({ success: false, message: 'User not found' });
+  if (!worker) {
+    return res.status(401).json({ success: false, message: 'User not found' });
+  }
   const match = await bcrypt.compare(password, worker.password_hash);
-  if (!match) return res.json({ success: false, message: 'Invalid password' });
+  if (!match) {
+    return res.status(401).json({ success: false, message: 'Invalid password' });
+  }
+  // Set session info if session middleware is present
+  if (req.session) {
+    req.session.worker_id = worker.worker_id;
+    req.session.worker_name = worker.name;
+  }
   res.json({ success: true, worker: { worker_id: worker.worker_id, name: worker.name } });
 });
 
-// Change password
+// Logout (destroy session)
+router.post('/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy(() => {
+      res.json({ success: true });
+    });
+  } else {
+    res.json({ success: true });
+  }
+});
+
+// --- Password Management ---
+
+// Change password (old password check)
 router.post('/change-password', async (req, res) => {
   const { worker_id, old_password, new_password } = req.body;
   const q = await pool.query('SELECT * FROM workers WHERE worker_id=$1', [worker_id]);
   const worker = q.rows[0];
-  if (!worker) return res.json({ success: false, message: 'User not found' });
+  if (!worker) return res.status(401).json({ success: false, message: 'User not found' });
   const match = await bcrypt.compare(old_password, worker.password_hash);
-  if (!match) return res.json({ success: false, message: 'Old password incorrect' });
+  if (!match) return res.status(401).json({ success: false, message: 'Old password incorrect' });
   const newHash = await bcrypt.hash(new_password, 10);
   await pool.query('UPDATE workers SET password_hash=$1 WHERE worker_id=$2', [newHash, worker_id]);
   res.json({ success: true });
