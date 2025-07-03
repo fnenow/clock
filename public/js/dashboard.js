@@ -1,4 +1,4 @@
-//copilot v3 === Full updated dashboard.js: group by day, then worker for cleaner report ===
+// === Full updated dashboard.js: group by day, then worker, clock-in/out show only time ===
 
 function formatDurationLocal(start, end) {
   if (!start) return '';
@@ -17,6 +17,13 @@ function formatDurationLocal(start, end) {
   const h = Math.floor(diff / 60);
   const m = diff % 60;
   return `${h}h ${m}m`;
+}
+
+// Utility: Get only time (HH:mm) from datetime_local string
+function getTimePart(dtstr) {
+  if (!dtstr) return '';
+  const parts = dtstr.split(' ');
+  return parts[1] ? parts[1].slice(0, 5) : '';
 }
 
 // Groups sessions by day, then worker, then project
@@ -194,8 +201,8 @@ function renderSessions() {
           <tr${overtime ? ' class="overtime"' : ''}>
             <td></td>
             <td><span class="editable" data-type="project" data-session="${s.session_ids}" contenteditable>${s.project_name || ''}</span></td>
-            <td><span class="editable" data-type="clock_in" data-session="${s.session_ids}" contenteditable>${s.clock_in || ''}</span></td>
-            <td><span class="editable" data-type="clock_out" data-session="${s.session_ids}" contenteditable>${s.clock_out || ''}</span></td>
+            <td><span class="editable" data-type="clock_in" data-session="${s.session_ids}" contenteditable>${getTimePart(s.clock_in) || ''}</span></td>
+            <td><span class="editable" data-type="clock_out" data-session="${s.session_ids}" contenteditable>${getTimePart(s.clock_out) || ''}</span></td>
             <td>${s.duration || ''} (${s.regular_hours}h + <b style="color:red">${s.overtime_hours}h</b>)</td>
             <td><span class="editable" data-type="note_in" data-session="${s.session_ids}" contenteditable>${s.note_in || ''}</span></td>
             <td><span class="editable" data-type="note_out" data-session="${s.session_ids}" contenteditable>${s.note_out || ''}</span></td>
@@ -304,9 +311,14 @@ async function handleInlineEdit(e) {
       for (const id of session.ids_in) await patchEntry(id, { project_name: newValue });
       for (const id of session.ids_out) await patchEntry(id, { project_name: newValue });
     } else if (type === 'clock_in' && session.ids_in.length) {
-      await patchEntry(session.ids_in[0], { datetime_local: newValue });
+      // Patch as full datetime_local (date + new time)
+      const orig = session.clock_in;
+      const date = orig.split(' ')[0];
+      await patchEntry(session.ids_in[0], { datetime_local: `${date} ${newValue}` });
     } else if (type === 'clock_out' && session.ids_out.length) {
-      await patchEntry(session.ids_out[session.ids_out.length-1], { datetime_local: newValue });
+      const orig = session.clock_out;
+      const date = orig.split(' ')[0];
+      await patchEntry(session.ids_out[session.ids_out.length-1], { datetime_local: `${date} ${newValue}` });
     } else if (type === 'note_in' && session.ids_in.length) {
       await patchEntry(session.ids_in[0], { note: newValue });
     } else if (type === 'note_out' && session.ids_out.length) {
@@ -353,8 +365,8 @@ document.getElementById('exportCSV').addEventListener('click', () => {
       `"${s.date}"`,
       `"${s.worker_name}"`,
       `"${s.project_name}"`,
-      `"${s.clock_in}"`,
-      `"${s.clock_out}"`,
+      `"${getTimePart(s.clock_in)}"`,
+      `"${getTimePart(s.clock_out)}"`,
       `"${s.duration}"`,
       `"${s.regular_hours}"`,
       `"${s.overtime_hours}"`,
