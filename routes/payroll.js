@@ -350,4 +350,28 @@ router.get('/export', async (req, res) => {
   }
 });
 
+// POST /api/payroll/update-status
+router.post('/update-status', async (req, res) => {
+  const { ids, field, value } = req.body;
+  if (!Array.isArray(ids) || !['billed', 'paid'].includes(field)) {
+    return res.status(400).json({ error: 'Invalid input' });
+  }
+  const dateField = field + '_date';
+  const dateValue = new Date().toISOString(); // use server time
+
+  try {
+    await pool.query(
+      `UPDATE clock_entries
+       SET ${field} = $1, ${dateField} = $2
+       WHERE id = ANY($3::int[])`,
+      [value, dateValue, ids]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error updating billed/paid status:', e);
+    res.status(500).json({ error: 'Failed to update entries' });
+  }
+});
+
+
 module.exports = router;
