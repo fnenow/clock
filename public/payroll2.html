@@ -32,152 +32,23 @@
   </style>
 </head>
 <body class="bg-light">
-<!-- Collapsible Admin Menu (Reusable Include) -->
-<button id="menu-toggle" aria-label="Menu">&#9776;</button>
-<div id="menu" aria-label="Main menu">
-  <ul>
-    <li><a href="dashboard.html">Dashboard</a></li>
-    <li><a href="payrate_admin.html">Pay Rates</a></li>
-    <li><a href="payroll2.html">Payroll</a></li>
-    <li><a href="project_admin.html">Projects</a></li>
-    <li><a href="worker_admin.html">Workers</a></li>
-    <li><a href="#" id="adminLogoutBtn">Logout</a></li>
-  </ul>
-</div>
-<div class="menu-overlay" id="menu-overlay"></div>
-<style>
-  #menu-toggle {
-    position: fixed;
-    top: 18px;
-    left: 18px;
-    z-index: 1051;
-    background: #1976d2;
-    color: #fff;
-    border: none;
-    border-radius: 4px;
-    padding: 9px 14px;
-    font-size: 20px;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-  #menu-toggle:hover {
-    background: #1256a7;
-  }
-  #menu {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 220px;
-    height: 100%;
-    background: #222;
-    color: #fff;
-    z-index: 1050;
-    padding-top: 60px;
-    box-shadow: 2px 0 12px rgba(0,0,0,0.18);
-  }
-  #menu ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  #menu li {
-    margin: 0;
-    padding: 0;
-  }
-  #menu a {
-    display: block;
-    color: #fff;
-    text-decoration: none;
-    padding: 12px 26px;
-    font-size: 1.05rem;
-    border-bottom: 1px solid #333;
-    transition: background 0.14s;
-  }
-  #menu a.active, #menu a:hover {
-    background: #1976d2;
-  }
-  @media (max-width: 700px) {
-    #menu {
-      width: 80vw;
-    }
-  }
-  .menu-overlay {
-    display: none;
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.18);
-    z-index: 1049;
-  }
-</style>
-<script>
-(function() {
-  const menuToggle = document.getElementById('menu-toggle');
-  const menu = document.getElementById('menu');
-  const overlay = document.getElementById('menu-overlay');
-  function openMenu() {
-    menu.style.display = 'block';
-    overlay.style.display = 'block';
-    document.body.style.overflow = 'hidden';
-  }
-  function closeMenu() {
-    menu.style.display = 'none';
-    overlay.style.display = 'none';
-    document.body.style.overflow = '';
-  }
-  menuToggle.onclick = function() {
-    if (menu.style.display === 'block') closeMenu();
-    else openMenu();
-  };
-  overlay.onclick = closeMenu;
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeMenu();
-  });
-  // Highlight active menu item
-  (function highlightMenu() {
-    const currentPage = location.pathname.split('/').pop();
-    document.querySelectorAll('#menu a').forEach(a => {
-      if (a.getAttribute('href') === currentPage) a.classList.add('active');
-    });
-  })();
-  // Logout button (optional, adjust endpoint as needed)
-  document.getElementById('adminLogoutBtn').onclick = function(e) {
-    e.preventDefault();
-    fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' })
-      .then(() => window.location = '/admin_login.html');
-  };
-})();
-</script>
-  <div class="container mt-5">
+<div class="container mt-5">
   <h2 class="text-center mb-3">Payroll (Grouped by Date)</h2>
+
   <!-- Filters -->
   <form class="row g-2 mb-3" id="payroll-filter-form" onsubmit="return false;">
-    <div class="col-auto">
-      <label>Start</label>
-      <input type="date" class="form-control" id="filter-start">
-    </div>
-    <div class="col-auto">
-      <label>End</label>
-      <input type="date" class="form-control" id="filter-end">
-    </div>
-    <div class="col-auto">
-      <label>Worker</label>
-      <select class="form-select" id="filter-worker"></select>
-    </div>
-    <div class="col-auto">
-      <label>Project</label>
-      <select class="form-select" id="filter-project"></select>
-    </div>
-    <div class="col-auto">
-      <label>Billed</label>
+    <div class="col-auto"><label>Start</label><input type="date" class="form-control" id="filter-start"></div>
+    <div class="col-auto"><label>End</label><input type="date" class="form-control" id="filter-end"></div>
+    <div class="col-auto"><label>Worker</label><select class="form-select" id="filter-worker"></select></div>
+    <div class="col-auto"><label>Project</label><select class="form-select" id="filter-project"></select></div>
+    <div class="col-auto"><label>Billed</label>
       <select class="form-select" id="filter-billed">
         <option value="">All</option>
         <option value="false">Unbilled</option>
         <option value="true">Billed</option>
       </select>
     </div>
-    <div class="col-auto">
-      <label>Paid</label>
+    <div class="col-auto"><label>Paid</label>
       <select class="form-select" id="filter-paid">
         <option value="">All</option>
         <option value="false">Unpaid</option>
@@ -197,6 +68,7 @@
       <button class="btn btn-secondary" type="button" onclick="exportCSV()">Export CSV</button>
     </div>
   </form>
+
   <div id="payroll-summary"></div>
   <div id="payroll-table-grouped"></div>
 </div>
@@ -204,41 +76,9 @@
 <script>
 function formatDateDisplay(str) {
   if (!str) return '';
-  // Accepts either "2025-06-15T00:00:00.000Z" or "2025-06-15"
   const d = new Date(str);
-  if (!isNaN(d.getTime())) {
-    // Get year-month-day in UTC (matches DB Zulu string)
-    return d.toISOString().slice(0, 10);
-  }
-  // If can't parse, just return as is
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   return str.length > 10 ? str.slice(0, 10) : str;
-}
-
-let filters = {
-  start_date: "",
-  end_date: "",
-  worker_id: "",
-  project_id: "",
-  billed: "",
-  paid: ""
-};
-
-async function loadWorkersAndProjects() {
-  // Populate worker and project dropdowns
-  const [workersRes, projectsRes] = await Promise.all([
-    fetch('/api/worker/all'),  // your /routes/worker.js should have router.get('/all')
-    fetch('/api/projects')     // your /routes/project.js should have router.get('/')
-  ]);
-  const workers = await workersRes.json();
-  const projects = await projectsRes.json();
-
-  let wOpt = '<option value="">All</option>';
-  workers.forEach(w => wOpt += `<option value="${w.worker_id}">${w.name}</option>`);
-  document.getElementById('filter-worker').innerHTML = wOpt;
-
-  let pOpt = '<option value="">All</option>';
-  projects.forEach(p => pOpt += `<option value="${p.id}">${p.name}</option>`);
-  document.getElementById('filter-project').innerHTML = pOpt;
 }
 
 function getFilterValues() {
@@ -250,6 +90,23 @@ function getFilterValues() {
     billed: document.getElementById('filter-billed').value,
     paid: document.getElementById('filter-paid').value
   };
+}
+
+async function loadWorkersAndProjects() {
+  const [workersRes, projectsRes] = await Promise.all([
+    fetch('/api/worker/all'),
+    fetch('/api/projects')
+  ]);
+  const workers = await workersRes.json();
+  const projects = await projectsRes.json();
+
+  let wOpt = '<option value="">All</option>';
+  workers.forEach(w => wOpt += `<option value="${w.worker_id}">${w.name}</option>`);
+  document.getElementById('filter-worker').innerHTML = wOpt;
+
+  let pOpt = '<option value="">All</option>';
+  projects.forEach(p => pOpt += `<option value="${p.id}">${p.name}</option>`);
+  document.getElementById('filter-project').innerHTML = pOpt;
 }
 
 function renderPayrollSummary(workerSums) {
@@ -276,6 +133,7 @@ function renderPayrollGroupedTable(data) {
   let html = `<table class="payroll-group-table">
     <thead>
       <tr>
+        <th><input type="checkbox" id="check-all" onchange="toggleAllChecks(this)"></th>
         <th>Date</th>
         <th>Project</th>
         <th>Worker</th>
@@ -285,17 +143,22 @@ function renderPayrollGroupedTable(data) {
         <th>OT</th>
         <th>Rate</th>
         <th>Amount</th>
+        <th>Billed</th>
+        <th>Paid</th>
       </tr>
     </thead>
     <tbody>`;
 
   let currentGroupDate = "";
   data.forEach(entry => {
+    const ids = JSON.stringify([entry.in_id, entry.out_id]);
     html += "<tr>";
     if (entry.date !== currentGroupDate) {
       currentGroupDate = entry.date;
+      html += `<td class="payroll-date-cell"><input type="checkbox" class="payroll-check" value="${entry.in_id}"></td>`;
       html += `<td class="payroll-date-cell">${entry.date}</td>`;
     } else {
+      html += `<td class="payroll-date-cell"><input type="checkbox" class="payroll-check" value="${entry.in_id}"></td>`;
       html += `<td class="payroll-date-cell"></td>`;
     }
     html += `
@@ -307,6 +170,8 @@ function renderPayrollGroupedTable(data) {
       <td>${entry.ot}</td>
       <td>${entry.rate}</td>
       <td>${entry.amount}</td>
+      <td><input type="checkbox" class="mark-billed" data-ids='${ids}' ${entry.billed ? 'checked' : ''}></td>
+      <td><input type="checkbox" class="mark-paid" data-ids='${ids}' ${entry.paid ? 'checked' : ''}></td>
     </tr>`;
   });
 
@@ -315,26 +180,19 @@ function renderPayrollGroupedTable(data) {
 }
 
 async function loadPayrollGrouped() {
-  filters = getFilterValues();
+  const filters = getFilterValues();
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
+
   const res = await fetch('/api/payroll?' + params.toString());
   const { rows, workerSums } = await res.json();
 
   renderPayrollSummary(workerSums);
 
-  // Sort by date for grouping
-  rows.sort((a, b) => {
-    const aDate = a.datetime_local || a.datetime_utc || '';
-    const bDate = b.datetime_local || b.datetime_utc || '';
-    return aDate.localeCompare(bDate);
-  });
-
   // Compose grouped rows
-  const groupedRows = [];
-  for (const row of rows) {
+  const groupedRows = rows.map(row => {
     const date = formatDateDisplay(row.datetime_local || row.datetime_utc);
-    groupedRows.push({
+    return {
       date,
       project: row.project_name || '',
       worker: row.worker_name || '',
@@ -345,11 +203,16 @@ async function loadPayrollGrouped() {
         : (row.overtime && Number(row.overtime) !== 0 ? Number(row.overtime) : ''),
       ot: row.overtime && Number(row.overtime) !== 0 ? Number(row.overtime) : '',
       rate: row.pay_rate ? Number(row.pay_rate) : '',
-      amount: row.pay_amount ? Number(row.pay_amount) : ''
-    });
-  }
+      amount: row.pay_amount ? Number(row.pay_amount) : '',
+      billed: row.billed || false,
+      paid: row.paid || false,
+      in_id: row.id,
+      out_id: row.out_id || row.id
+    };
+  });
 
-  // Group by date for visual effect
+  // Sort & render
+  groupedRows.sort((a, b) => a.date.localeCompare(b.date));
   let renderArr = [];
   let currentDate = '';
   for (let row of groupedRows) {
@@ -360,25 +223,13 @@ async function loadPayrollGrouped() {
       renderArr.push({ ...row, date: '' });
     }
   }
-
   renderPayrollGroupedTable(renderArr);
-}
-
-function exportCSV() {
-  filters = getFilterValues();
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
-  window.open('/api/payroll/export?' + params.toString(), '_blank');
-}
-
-function toggleAllChecks(source) {
-  document.querySelectorAll('.payroll-check').forEach(cb => cb.checked = source.checked);
 }
 
 async function billSelected() {
   const ids = Array.from(document.querySelectorAll('.payroll-check:checked')).map(cb => Number(cb.value));
   if (!ids.length) return alert('No entries selected.');
-  const billed_date = prompt('Enter Bill Date (any format):');
+  const billed_date = prompt('Enter Bill Date:');
   if (!billed_date) return;
   await fetch('/api/payroll/bill', {
     method: 'POST',
@@ -391,7 +242,7 @@ async function billSelected() {
 async function paidSelected() {
   const ids = Array.from(document.querySelectorAll('.payroll-check:checked')).map(cb => Number(cb.value));
   if (!ids.length) return alert('No entries selected.');
-  const paid_date = prompt('Enter Paid Date (any format):');
+  const paid_date = prompt('Enter Paid Date:');
   if (!paid_date) return;
   await fetch('/api/payroll/paid', {
     method: 'POST',
@@ -400,6 +251,32 @@ async function paidSelected() {
   });
   loadPayrollGrouped();
 }
+
+function exportCSV() {
+  const filters = getFilterValues();
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
+  window.open('/api/payroll/export?' + params.toString(), '_blank');
+}
+
+function toggleAllChecks(source) {
+  document.querySelectorAll('.payroll-check').forEach(cb => cb.checked = source.checked);
+}
+
+document.addEventListener('change', async (e) => {
+  const isBilled = e.target.classList.contains('mark-billed');
+  const isPaid = e.target.classList.contains('mark-paid');
+  if (!isBilled && !isPaid) return;
+  const ids = JSON.parse(e.target.dataset.ids);
+  const field = isBilled ? 'billed' : 'paid';
+  const value = e.target.checked;
+
+  await fetch('/api/payroll/update-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, field, value })
+  });
+});
 
 window.onload = async function () {
   await loadWorkersAndProjects();
